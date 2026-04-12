@@ -1,0 +1,51 @@
+name: QA Workflow
+
+on:
+  workflow_dispatch:
+  pull_request:
+    # Pull request events
+    types: [synchronize, opened, reopened, ready_for_review]
+  push:
+    # Push events
+    branches:
+      - main
+      - develop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: doxygen gcovr lcov cppcheck graphviz clang-format valgrind bc cmake gcc g++ libmicrohttpd-dev python3 postgresql postgresql-client
+          version: 1.0
+
+      - name: Start PostgreSQL service
+        run: |
+          sudo service postgresql start
+          sudo -u postgres psql -c "CREATE DATABASE paranoid_db;"
+          sudo -u postgres psql -c "CREATE USER server WITH PASSWORD 'server123';"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE paranoid_db TO server;"
+          sudo -u postgres psql -d paranoid_db -f server/init/init_postgres.sql
+
+      - name: Run style check
+        uses: ./.github/actions/style
+
+      - name: Run documentation check
+        uses: ./.github/actions/documentation
+
+      - name: Build project
+        uses: ./.github/actions/building
+
+      - name: Run tests and coverage
+        uses: ./.github/actions/coverage_and_test
+
+      - name: Run Valgrind on tests
+        uses: ./.github/actions/valgrind_check

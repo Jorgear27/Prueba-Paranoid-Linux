@@ -1,0 +1,32 @@
+{
+  "host": "127.0.0.1",
+  "port": 8080,
+  "map_path": "scripts/maps/graph_routing_map_5w_4h.json",
+  "connect_delay_ms": 80,
+  "cancellation_window_seconds": 30,
+  "post_window_buffer_seconds": 8,
+  "poll_interval_seconds": 5,
+  "initial_order": {
+    "hub_id": "H001",
+    "items_needed": [
+      { "item_type": 1, "quantity": 5 },
+      { "item_type": 2, "quantity": 3 }
+    ]
+  },
+  "graph_state_changes": {
+    "empty_warehouses": [],
+    "restock_to_critical": [
+      { "warehouse_id": "W001", "stock_level": 250 }
+    ],
+    "disconnect_warehouses": ["W003"],
+    "disconnect_hubs": ["H002"]
+  },
+  "send_disconnect_on_exit": true,
+  "http_checks": {
+    "enabled": true,
+    "base_url": "http://127.0.0.1:8081",
+    "market_source": "H001",
+    "fc_source": "W001",
+    "fc_sink": "W005"
+  }
+}

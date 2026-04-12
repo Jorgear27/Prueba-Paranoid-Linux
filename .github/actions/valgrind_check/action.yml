@@ -1,0 +1,55 @@
+name: "Valgrind Memory Check"
+description: "Run Valgrind on test executables and ensure no memory issues"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Run Valgrind on tests"
+      shell: bash
+      run: |
+        PROJECT_PATH=$(pwd)
+        VALGRIND_LOG_DIR=$PROJECT_PATH/valgrind_logs
+        mkdir -p $VALGRIND_LOG_DIR
+
+        ERROR_FLAG=0
+
+        # Run Valgrind on all test executables
+        for test in $PROJECT_PATH/build/hub/tests/*_test; do
+          echo "Running Valgrind on $test"
+          VALGRIND_LOG_FILE=$VALGRIND_LOG_DIR/$(basename $test).log
+          valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --error-exitcode=1 --log-file=$VALGRIND_LOG_FILE $test
+
+          # Check if Valgrind detected any errors
+          if [ $? -ne 0 ]; then
+            echo "Valgrind detected issues in $test. Check $VALGRIND_LOG_FILE for details."
+            ERROR_FLAG=1
+          fi
+        done
+
+        for test in $PROJECT_PATH/build/warehouse/tests/*_test; do
+          echo "Running Valgrind on $test"
+          VALGRIND_LOG_FILE=$VALGRIND_LOG_DIR/$(basename $test).log
+          valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --error-exitcode=1 --log-file=$VALGRIND_LOG_FILE $test
+
+          # Check if Valgrind detected any errors
+          if [ $? -ne 0 ]; then
+            echo "Valgrind detected issues in $test. Check $VALGRIND_LOG_FILE for details."
+            ERROR_FLAG=1
+          fi
+        done
+
+        # Fail the action if any Valgrind errors were detected
+        if [ $ERROR_FLAG -ne 0 ]; then
+          echo "Error: Valgrind detected memory issues in one or more tests."
+          exit 1
+        else
+          echo "All tests passed Valgrind memory checks!"
+        fi
+
+    # Upload Valgrind logs as an artifact, when failed
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: Valgrind Logs
+        path: ./valgrind_logs
+        retention-days: 1

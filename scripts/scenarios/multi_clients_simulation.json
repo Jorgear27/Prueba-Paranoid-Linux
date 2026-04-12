@@ -1,0 +1,16 @@
+{
+  "host": "127.0.0.1",
+  "port": 8080,
+  "map_path": "scripts/maps/graph_routing_map_7w_7h.json",
+  "connect_delay_ms": 100,
+  "hold_open_seconds": 3,
+  "send_disconnect_on_exit": true,
+  "exercise_core_flows": true,
+  "http_checks": {
+    "enabled": true,
+    "base_url": "http://127.0.0.1:8081",
+    "market_source": "H001",
+    "fc_source": "W001",
+    "fc_sink": "W005"
+  }
+}

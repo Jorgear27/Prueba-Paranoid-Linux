@@ -1,0 +1,29 @@
+name: "CMake Build with Conan and Submodule"
+description: "Executes a compilation."
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: Set up Python environment
+      shell: bash
+      run: |
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install conan
+
+    - name: Install dependencies with Conan
+      shell: bash
+      run: |
+        source venv/bin/activate
+        conan profile detect --force
+        conan install . --build=missing --settings=build_type=Debug
+
+    - name: Compile
+      shell: bash
+      run: |
+        echo "Running command: cmake .. -DCMAKE_TOOLCHAIN_FILE=./Debug/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DRUN_COVERAGE=TRUE && make -j$(nproc)"
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_TOOLCHAIN_FILE=./Debug/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DRUN_COVERAGE=TRUE && make -j$(nproc)
+        cd ..
