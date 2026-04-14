@@ -7,44 +7,27 @@ runs:
     - name: "Run coverage"
       shell: bash
       run: |
-        set -euo pipefail
-
         PROJECT_PATH=$(pwd)
 
         ERROR_FILE_FLAG=$(pwd)/tests_errors.txt
 
         CTEST_ERROR_FILE_FLAG=$(pwd)/ctest_errors.txt
-        : > "$ERROR_FILE_FLAG"
-        : > "$CTEST_ERROR_FILE_FLAG"
+        # run tests built with cmake
+        # --output-on-faileure: prints everythin outputted by the tests if it fails
+        # -VV verbose output
+        CTEST_COMMAND=$(ctest --test-dir build/hub/tests --output-on-failure -VV 2>> $CTEST_ERROR_FILE_FLAG 1>>$ERROR_FILE_FLAG)
+        CTEST_COMMAND=$(ctest --test-dir build/warehouse/tests --output-on-failure -VV 2>> $CTEST_ERROR_FILE_FLAG 1>>$ERROR_FILE_FLAG)
+        CTEST_COMMAND=$(ctest --test-dir build/server/tests --output-on-failure -VV 2>> $CTEST_ERROR_FILE_FLAG 1>>$ERROR_FILE_FLAG)
 
-        # Prefer CTest; if no tests are registered in CI, run discovered test binaries directly.
-        if ctest --test-dir build --output-on-failure -VV --no-tests=error 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"; then
-          echo "CTest execution completed."
+        if [ -s $CTEST_ERROR_FILE_FLAG ]; then
+          echo "Error: Unit Tests Failed"
+          exit 1
         else
-          if grep -qi "No tests were found" "$ERROR_FILE_FLAG" || grep -qi "No tests were found" "$CTEST_ERROR_FILE_FLAG"; then
-            echo "CTest found no registered tests; running test binaries directly." | tee -a "$ERROR_FILE_FLAG"
-
-            mapfile -t TEST_BINS < <(find build/hub/tests build/warehouse/tests build/server/tests -maxdepth 1 -type f -executable -name "*test*" 2>/dev/null | sort)
-
-            if [ "${#TEST_BINS[@]}" -eq 0 ]; then
-              echo "Error: No test binaries were found under build/*/tests" | tee -a "$ERROR_FILE_FLAG"
-              exit 1
-            fi
-
-            for test_bin in "${TEST_BINS[@]}"; do
-              echo "Running $test_bin" | tee -a "$ERROR_FILE_FLAG"
-              "$test_bin" 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"
-            done
-          else
-            echo "Error: CTest failed for a reason other than missing test registration." | tee -a "$ERROR_FILE_FLAG"
-            exit 1
-          fi
+          echo "All tests were passed!"
         fi
 
-        echo "All tests were passed!"
-
         # run coverage of those tests and oputput to file
-        gcovr -r "$PROJECT_PATH" . >> "$ERROR_FILE_FLAG"
+        gcovr -r $PROJECT_PATH . >> $ERROR_FILE_FLAG
 
         echo "Runnig: gcovr -r $PROJECT_PATH ."
 
@@ -55,7 +38,7 @@ runs:
         # grep pulls out the line of the total
         # awk prints only the last field (NF = number of fields of the grepped line)
         # cut finnaly creates a list using '%' as a delimiter (-d '%') and keeps first value (-f 1)
-        COVERAGE_RESULT=$(grep "TOTAL" "$ERROR_FILE_FLAG" | awk '{print $NF}' | cut -d '%' -f 1)
+        COVERAGE_RESULT=$(grep "TOTAL" $ERROR_FILE_FLAG | awk '{print $NF}' | cut -d '%' -f 1)
 
         # Coverage lines GT 80
         if [ "$(echo "$COVERAGE_RESULT > 80" | bc)" -eq 1 ]; then
@@ -71,7 +54,5 @@ runs:
       if: failure()
       with:
         name: Tests or coverage errors!!!
-        path: |
-          ./tests_errors.txt
-          ./ctest_errors.txt
+        path: ./tests_errors.txt
         retention-days: 1

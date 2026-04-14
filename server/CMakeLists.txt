@@ -64,6 +64,7 @@ endif()
 target_link_libraries(server PostgreSQL::PostgreSQL nlohmann_json::nlohmann_json ${MONGO_CXX_TARGET})
 
 # Add tests
-if (BUILD_TESTING)
+if (RUN_COVERAGE)
+    enable_testing()
     add_subdirectory(tests)
 endif()

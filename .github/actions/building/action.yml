@@ -22,8 +22,8 @@ runs:
     - name: Compile
       shell: bash
       run: |
-        echo "Running command: cmake .. -DCMAKE_TOOLCHAIN_FILE=./build/Debug/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DRUN_COVERAGE=TRUE && make -j$(nproc)"
+        echo "Running command: cmake .. -DCMAKE_TOOLCHAIN_FILE=./build/Debug/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DRUN_COVERAGE=TRUE && make -j$(nproc)"
         mkdir -p build
         cd build
-        cmake .. -DCMAKE_TOOLCHAIN_FILE=./build/Debug/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DRUN_COVERAGE=TRUE && make -j$(nproc)
+        cmake .. -DCMAKE_TOOLCHAIN_FILE=./build/Debug/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DRUN_COVERAGE=TRUE && make -j$(nproc)
         cd ..

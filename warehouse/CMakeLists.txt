@@ -30,6 +30,7 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE cjson::cjson unity::unity)
 
 # Add tests
-if (BUILD_TESTING)
+if (RUN_COVERAGE)
+    enable_testing()
     add_subdirectory(tests)
 endif()
