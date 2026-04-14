@@ -17,13 +17,9 @@ runs:
         : > "$ERROR_FILE_FLAG"
         : > "$CTEST_ERROR_FILE_FLAG"
 
-        # run tests built with cmake
-        # --output-on-faileure: prints everythin outputted by the tests if it fails
-        # -VV verbose output
-        # CTest may print normal progress to stderr in CI, so fail only on real errors.
-        ctest --test-dir build/hub/tests --output-on-failure -VV --no-tests=error 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"
-        ctest --test-dir build/warehouse/tests --output-on-failure -VV --no-tests=error 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"
-        ctest --test-dir build/server/tests --output-on-failure -VV --no-tests=error 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"
+        # Run all tests from the global build tree.
+        # In CI, some subdirectories may have no local test registry even when tests exist globally.
+        ctest --test-dir build --output-on-failure -VV --no-tests=error 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"
 
         echo "All tests were passed!"
 
