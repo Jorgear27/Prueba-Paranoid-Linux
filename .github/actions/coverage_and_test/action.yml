@@ -17,9 +17,29 @@ runs:
         : > "$ERROR_FILE_FLAG"
         : > "$CTEST_ERROR_FILE_FLAG"
 
-        # Run all tests from the global build tree.
-        # In CI, some subdirectories may have no local test registry even when tests exist globally.
-        ctest --test-dir build --output-on-failure -VV --no-tests=error 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"
+        # Prefer CTest; if no tests are registered in CI, run discovered test binaries directly.
+        if ctest --test-dir build --output-on-failure -VV --no-tests=error 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"; then
+          echo "CTest execution completed."
+        else
+          if grep -qi "No tests were found" "$ERROR_FILE_FLAG" || grep -qi "No tests were found" "$CTEST_ERROR_FILE_FLAG"; then
+            echo "CTest found no registered tests; running test binaries directly." | tee -a "$ERROR_FILE_FLAG"
+
+            mapfile -t TEST_BINS < <(find build/hub/tests build/warehouse/tests build/server/tests -maxdepth 1 -type f -executable -name "*test*" 2>/dev/null | sort)
+
+            if [ "${#TEST_BINS[@]}" -eq 0 ]; then
+              echo "Error: No test binaries were found under build/*/tests" | tee -a "$ERROR_FILE_FLAG"
+              exit 1
+            fi
+
+            for test_bin in "${TEST_BINS[@]}"; do
+              echo "Running $test_bin" | tee -a "$ERROR_FILE_FLAG"
+              "$test_bin" 1>>"$ERROR_FILE_FLAG" 2>>"$CTEST_ERROR_FILE_FLAG"
+            done
+          else
+            echo "Error: CTest failed for a reason other than missing test registration." | tee -a "$ERROR_FILE_FLAG"
+            exit 1
+          fi
+        fi
 
         echo "All tests were passed!"
 
