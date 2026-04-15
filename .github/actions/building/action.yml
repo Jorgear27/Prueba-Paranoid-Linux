@@ -31,10 +31,16 @@ runs:
     - name: Build Go Backer Server
       shell: bash
       run: |
-        cd backer/src
-        go mod download
-        CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../backer ./cmd/
-        echo "Backer binary built successfully ($(du -h ../backer | cut -f1))"
+        if [ ! -f backer/src/go.mod ]; then
+          echo "Error: backer/src/go.mod not found"
+          pwd
+          ls -la
+          exit 1
+        fi
+
+        go -C backer/src mod download
+        CGO_ENABLED=0 go -C backer/src build -trimpath -ldflags="-s -w" -o ../backer ./cmd/
+        echo "Backer binary built successfully ($(du -h backer/backer | cut -f1))"
 
     - name: Build Courier simulator
       shell: bash
