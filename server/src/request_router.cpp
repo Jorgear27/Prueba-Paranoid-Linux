@@ -28,9 +28,8 @@ std::string RequestRouter::routeRequest(const std::string& jsonStr, int sock)
             return json{{"status", "success"}, {"message", "Restock notice processed"}}.dump();
         }
         case RequestType::OrderRequest: {
-            // Delegate to OrderManager
-            orderManager.handleNewOrder(jsonStr);
-            return json{{"status", "success"}, {"message", "New order created"}}.dump();
+            // Delegate to OrderManager and return the response which includes computed stops
+            return orderManager.handleNewOrder(jsonStr);
         }
         case RequestType::OrderDispatch: {
             // Delegate to OrderManager for order dispatch

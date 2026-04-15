@@ -45,7 +45,7 @@ class MockInventoryManager : public InventoryManager
 class MockOrderManager : public OrderManager
 {
   public:
-    MOCK_METHOD(void, handleNewOrder, (const std::string&), (override));
+    MOCK_METHOD(std::string, handleNewOrder, (const std::string&), (override));
     MOCK_METHOD(void, handleOrderDispatch, (const std::string&), (override));
     MOCK_METHOD(void, deliveryUpdate, (const std::string&), (override));
     MOCK_METHOD(std::string, handleOrderStatusQuery, (const std::string&), (override));
@@ -115,13 +115,15 @@ TEST_F(RequestRouterTest, RouteRequest_OrderRequest)
 {
     std::string jsonData = R"({"type": "order_request"})";
 
-    EXPECT_CALL(mockOrderManager, handleNewOrder(jsonData));
+    // Mock response should include stops array for TP4 courier routing
+    std::string mockResponse = R"({"status":"success","order_id":"order123","stops":["warehouse1","warehouse2"]})";
+    EXPECT_CALL(mockOrderManager, handleNewOrder(jsonData)).WillOnce(::testing::Return(mockResponse));
 
     std::string response = router.routeRequest(jsonData, 0);
     json actualResponse = json::parse(response);
-    json expectedResponse = json::parse(R"({"status":"success","message":"New order created"})");
 
-    EXPECT_EQ(actualResponse, expectedResponse);
+    EXPECT_EQ(actualResponse["status"], "success");
+    EXPECT_EQ(actualResponse["stops"].size(), 2);
 }
 
 // Test for OrderDispatch request

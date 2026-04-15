@@ -1,0 +1,96 @@
+# Backer stack: Go Backer Server + infrastructure services
+#
+# The C++ Central Server and PostgreSQL run natively on the host
+# (built with CMake/Conan as usual). The backer reaches the C++ server
+# at host.docker.internal:8080.
+#
+# Usage:
+#   1. Build and run the C++ server natively (CMake/Conan)
+#   2. export JWT_SECRET="your-secret-here"
+#   3. docker compose up --build
+
+services:
+
+  # ---------- Reverse proxy + circuit breaker ----------
+  traefik:
+    image: traefik:v3.0
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8180:8080"            # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # ---------- RabbitMQ ----------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "15672:15672"          # Management UI
+      - "1883:1883"            # MQTT port
+    expose:
+      - "5672"
+      - "1883"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    command: >
+      sh -c 'rabbitmq-plugins enable --offline rabbitmq_mqtt && rabbitmq-server'
+    restart: unless-stopped
+
+  # ---------- Go Backer Server ----------
+  backer:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET env var is required — export it before running compose}"
+      BACKER_PORT: "9090"
+      CPP_TCP_ADDR: "host.docker.internal:8080"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      RATE_LIMIT_RPS: "100"
+      EUREKA_URL: "http://eureka:8761/eureka"
+      PREDICTOR_URL: "http://predictor:8082"
+      PREDICTOR_TIMEOUT_MS: "500"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backer.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.backer.entrypoints=web"
+      - "traefik.http.services.backer.loadbalancer.server.port=9090"
+      - "traefik.http.middlewares.backer-cb.circuitbreaker.expression=NetworkErrorRatio() > 0.30"
+      - "traefik.http.routers.backer.middlewares=backer-cb"
+    expose:
+      - "9090"
+    restart: unless-stopped
+
+  # ---------- Prometheus ----------
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9091:9090"              # Prometheus UI
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - backer
+    restart: unless-stopped
+
+  # ---------- Eureka ----------
+  eureka:
+    image: steeltoeoss/eureka-server:latest
+    ports:
+      - "8761:8761"              # Eureka UI
+    restart: unless-stopped

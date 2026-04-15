@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: doxygen gcovr lcov cppcheck graphviz clang-format valgrind bc cmake gcc g++ libmicrohttpd-dev python3 postgresql postgresql-client
+          packages: doxygen gcovr lcov cppcheck graphviz clang-format valgrind bc cmake gcc g++ libmicrohttpd-dev python3 postgresql postgresql-client qtbase5-dev libmosquitto-dev pkg-config
           version: 1.0
 
       - name: Start PostgreSQL service
@@ -34,6 +34,12 @@ jobs:
           sudo -u postgres psql -c "CREATE USER server WITH PASSWORD 'server123';"
           sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE paranoid_db TO server;"
           sudo -u postgres psql -d paranoid_db -f server/init/init_postgres.sql
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: backer/src/go.sum
 
       - name: Run style check
         uses: ./.github/actions/style

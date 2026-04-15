@@ -3,7 +3,7 @@
 #include <iomanip>
 #include <sstream>
 
-void OrderManager::handleNewOrder(const std::string& jsonData)
+std::string OrderManager::handleNewOrder(const std::string& jsonData)
 {
     try
     {
@@ -14,7 +14,7 @@ void OrderManager::handleNewOrder(const std::string& jsonData)
         if (!validateOrderDetails(message))
         {
             std::cerr << "[ERROR] Invalid order details.\n";
-            return; // Exit early if validation fails
+            return json{{"status", "error"}, {"message", "Invalid order details"}}.dump();
         }
 
         // Extract fields
@@ -32,7 +32,31 @@ void OrderManager::handleNewOrder(const std::string& jsonData)
             {
                 logger.log("OrderManager", "[ERROR] Failed to insert/update order in DB.");
                 std::cerr << "[ERROR] Failed to insert/update order.\n";
-                return;
+                return json{{"status", "error"}, {"message", "Failed to insert order in database"}}.dump();
+            }
+        }
+
+        // Compute delivery stops (warehouses) for each item
+        json stopsArray = json::array();
+        std::unordered_map<std::string, bool> uniqueStops; // Deduplicate stops
+
+        for (const auto& item : orderItemsList)
+        {
+            int itemType = item.at("item_type");
+            int quantityNeeded = item.at("quantity");
+
+            // Find warehouse for this item
+            std::string warehouseId = inventoryManager.findWarehouseForItem(itemType, quantityNeeded);
+            if (!warehouseId.empty() && uniqueStops.find(warehouseId) == uniqueStops.end())
+            {
+                stopsArray.push_back(warehouseId);
+                uniqueStops[warehouseId] = true;
+                logger.log("OrderManager", "[ROUTE] Added warehouse stop: " + warehouseId +
+                                               " for item_type: " + std::to_string(itemType));
+            }
+            else if (warehouseId.empty())
+            {
+                logger.log("OrderManager", "[WARN] No warehouse found for item_type: " + std::to_string(itemType));
             }
         }
 
@@ -56,13 +80,22 @@ void OrderManager::handleNewOrder(const std::string& jsonData)
             }
         }).detach(); // Detach the thread to allow it to run independently
 
-        logger.log("OrderManager", "[INFO] New order added for user: " + hubId);
+        logger.log("OrderManager", "[INFO] New order added for user: " + hubId + " with " +
+                                       std::to_string(stopsArray.size()) + " delivery stops");
+
+        // Return success response with the computed stops for courier routing
+        json response = json::object();
+        response["status"] = "success";
+        response["order_id"] = orderId;
+        response["stops"] = stopsArray;
+
+        return response.dump();
     }
     catch (const std::exception& e)
     {
         logger.log("OrderManager", "[ERROR] Exception occurred while handling new order: " + std::string(e.what()));
         std::cerr << "[ERROR] Failed to handle new order: " << e.what() << "\n";
-        return;
+        return json{{"status", "error"}, {"message", e.what()}}.dump();
     }
 }
 
@@ -201,10 +234,19 @@ void OrderManager::handleOrderDispatch(const std::string& jsonData)
         // JSON object to send to the hub for notification
         nlohmann::json orderDistribution;
         orderDistribution["type"] = "order_for_distribution";
-        orderDistribution["timestamp"] = "2025-04-01T12:10:00Z";
         orderDistribution["order_id"] = orderId;
         orderDistribution["status"] = status;
         orderDistribution["items_shipped"] = itemsShipped;
+
+        // Generate a real UTC timestamp (same fix applied to supplyRequest in TP2).
+        {
+            const std::time_t now = std::time(nullptr);
+            std::tm utc{};
+            gmtime_r(&now, &utc);
+            std::ostringstream oss;
+            oss << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+            orderDistribution["timestamp"] = oss.str();
+        }
 
         nlohmann::json orderDetails = getOrderDetails(orderId);
         std::string hubId = orderDetails.at("user_id");

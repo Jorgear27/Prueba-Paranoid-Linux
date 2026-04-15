@@ -50,9 +50,13 @@ class OrderManager
     /**
      * @brief Handle a new order request.
      *
+     * Computes delivery stops (warehouses) for the order items and returns
+     * them as part of the response for courier routing in TP4.
+     *
      * @param jsonData JSON string containing the order request.
+     * @return std::string JSON response with status and computed stops array.
      */
-    virtual void handleNewOrder(const std::string& jsonData);
+    virtual std::string handleNewOrder(const std::string& jsonData);
 
     /**
      * @brief Process approved orders and create supply requests.

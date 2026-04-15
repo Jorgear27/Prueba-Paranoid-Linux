@@ -27,3 +27,21 @@ runs:
         cd build
         cmake .. -DCMAKE_TOOLCHAIN_FILE=./build/Debug/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DRUN_COVERAGE=TRUE && make -j$(nproc)
         cd ..
+
+    - name: Build Go Backer Server
+      shell: bash
+      run: |
+        cd backer/src
+        go mod download
+        CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../backer ./cmd/
+        echo "Backer binary built successfully ($(du -h ../backer | cut -f1))"
+
+    - name: Build Courier simulator
+      shell: bash
+      run: |
+        cd courier/sim
+        cmake -B build -DCMAKE_BUILD_TYPE=Debug \
+          -DEMPLOYEE_ID='"E001"' \
+          -DMQTT_BROKER_ADDR='"127.0.0.1"' \
+          -DMQTT_BROKER_PORT=1883
+        cmake --build build -j$(nproc)

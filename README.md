@@ -76,7 +76,26 @@ Override if needed:
 export MONGO_URI="mongodb://localhost:27017"
 ```
 
-## 4. Initialize PostgreSQL
+## 4. Start the Backer stack with Docker
+
+The Backer services live in [backer/init/docker-compose.yml](backer/init/docker-compose.yml). This stack expects the native C++ server and PostgreSQL to already be running on the host.
+
+From the `backer/init` directory, export the JWT secret and start the stack:
+
+```bash
+export JWT_SECRET="secret"
+docker compose up --build
+```
+
+If Docker access is restricted on your machine, either run the command with `sudo` or add your user to the `docker` group and log out/in again.
+
+If you use `sudo`, pass the secret through explicitly:
+
+```bash
+sudo env JWT_SECRET="secret" docker compose up --build
+```
+
+## 5. Initialize PostgreSQL
 
 Start PostgreSQL and prepare database and user.
 
@@ -90,7 +109,7 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE paranoid_db TO server
 sudo -u postgres psql -d paranoid_db -f server/init/init_postgres.sql
 ```
 
-## 5. Conan setup
+## 6. Conan setup
 The use of a python environment is recommended
 ```bash
 python3 -m venv venv
@@ -110,7 +129,7 @@ Install dependencies and generate CMake toolchain files:
 conan install . -of build/Debug -s build_type=Debug --build=missing
 ```
 
-## 6. Configure and build
+## 7. Configure and build
 
 From repository root:
 
@@ -119,7 +138,7 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=./build/Debug/generators/conan_toolchain.cmake -
 make -j$(nproc)
 ```
 
-## 7. Run binaries
+## 8. Run binaries
 
 From repository root after build:
 
@@ -129,7 +148,7 @@ From repository root after build:
 ./build/warehouse/warehouse
 ```
 
-## 8. Run tests
+## 9. Run tests
 
 From repository root:
 
@@ -137,7 +156,7 @@ From repository root:
 ctest --test-dir build --output-on-failure
 ```
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### Error: Package mongo-cxx-driver not resolved
 - Ensure conancenter points to center2:
@@ -151,7 +170,7 @@ ctest --test-dir build --output-on-failure
 - Start MongoDB container:
   - sudo docker run -d --name paranoid-mongo -p 27017:27017 mongo:7
 
-## 10. Visual Graph Views (Topology + Algorithms)
+## 11. Visual Graph Views (Topology + Algorithms)
 
 You can generate visual files from the fixture map to inspect:
 
@@ -204,7 +223,7 @@ Install Graphviz if needed:
 sudo apt-get install -y graphviz
 ```
 
-## 11. Clients Simulation
+## 12. Clients Simulation
 
 To connect many hubs/warehouses automatically and exercise core TCP flows
 (authentication, inventory updates, restock, order request, order status), use:
@@ -244,7 +263,7 @@ Notes:
 - The simulator opens one TCP connection per node in the map, prints server responses, and then closes cleanly.
 
 
-## 12. Full order lifecycle simulation (30s window + restock + graph checks)
+## 13. Full order lifecycle simulation (30s window + restock + graph checks)
 
 This scenario validates end-to-end behavior:
 
@@ -279,3 +298,90 @@ python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --no-http-checks
 ```bash
 python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --no-disconnect
 ```
+
+## 14. Run Backer Go tests
+
+The Backer tests live in [backer/src/tests](backer/src/tests).
+
+If you have Go 1.26.x or newer installed locally:
+
+```bash
+cd backer/src
+go test ./tests/... -v
+go test ./... -v
+```
+
+If your local Go version is older, use Docker instead:
+
+```bash
+cd backer/src
+docker run --rm -v "$PWD":/app -w /app golang:1.26-alpine sh -lc "go mod download && go test ./tests/... -v"
+```
+
+Useful checks for Backer functionality:
+
+- `POST /shipments` should return `shipment_id`, `status`, and the courier `stops` list.
+- `POST /dispatch` with `status: "Delivered"` should require `employee_id` and `stops`.
+- `GET /health` should report `cpp_bridge` and `rabbitmq` as `ok`.
+
+## 15. Run Courier tests and simulator
+
+The Courier firmware lives in [courier](courier). It has two test paths:
+
+### Host unit tests
+
+These validate the shared courier state and payload builders on your machine.
+The Unity test framework is vendored as a submodule under [courier/src/unity](courier/src/unity).
+
+If this is a fresh clone, initialize the submodule first:
+
+```bash
+git submodule update --init --recursive
+```
+
+Run the host test binary:
+
+```bash
+cd courier/src
+gcc -I. -Iunity/src test_mqtt_handler.c courier_state.c unity/src/unity.c -lpthread -o test_mqtt_handler
+./test_mqtt_handler
+```
+
+### Qt desktop simulator
+
+The simulator is useful to visualize route reception, GPS tracking, SOS, and delivery events.
+
+```bash
+sudo apt-get install -y qtbase5-dev libmosquitto-dev pkg-config mosquitto-clients
+cd courier/sim
+cmake -B build -DCMAKE_BUILD_TYPE=Debug \
+  -DEMPLOYEE_ID='"E001"' \
+  -DMQTT_BROKER_ADDR='"127.0.0.1"' \
+  -DMQTT_BROKER_PORT=1883
+cmake --build build -j
+COURIER_EMPLOYEE_ID=E001 COURIER_BROKER_ADDR=127.0.0.1 COURIER_BROKER_PORT=1883 ./build/courier_sim
+```
+
+### Courier functionality checks
+
+In separate terminals, subscribe to the topics the courier uses:
+
+```bash
+mosquitto_sub -h 127.0.0.1 -p 1883 -t routes/E001 -v
+mosquitto_sub -h 127.0.0.1 -p 1883 -t tracking/E001 -v
+mosquitto_sub -h 127.0.0.1 -p 1883 -t alerts/sos/E001 -v
+mosquitto_sub -h 127.0.0.1 -p 1883 -t delivered/E001 -v
+```
+
+Publish a route to see the UI update:
+
+```bash
+mosquitto_pub -h 127.0.0.1 -p 1883 -t routes/E001 -m '["Mercado Sur","Mercado Norte"]'
+```
+
+Expected behavior:
+
+- The UI shows the current stop and the next destination.
+- Tracking is published every 5 seconds.
+- SOS publishes a JSON alert to `alerts/sos/{employee_id}`.
+- Delivered publishes `{"stop":"<name>","status":"done"}` to `delivered/{employee_id}`.

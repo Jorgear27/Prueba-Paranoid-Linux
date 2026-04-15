@@ -53,7 +53,7 @@ class OrderManagerTest : public ::testing::Test
     } // Inject mocks
 };
 
-// Test handleNewOrder
+// Test handleNewOrder with valid order — should compute warehouse stops
 TEST_F(OrderManagerTest, HandleNewOrder_ValidOrder)
 {
     std::string jsonData = R"({
@@ -67,9 +67,79 @@ TEST_F(OrderManagerTest, HandleNewOrder_ValidOrder)
 
     EXPECT_CALL(mockDatabase, insertOrUpdateOrder("order123", "hub123", 1, 10)).WillOnce(Return(true));
     EXPECT_CALL(mockDatabase, insertOrUpdateOrder("order123", "hub123", 2, 5)).WillOnce(Return(true));
-    EXPECT_CALL(mockLogger, log("OrderManager", "[INFO] New order added for user: hub123"));
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(1, 10)).WillOnce(Return("warehouse1"));
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(2, 5)).WillOnce(Return("warehouse2"));
+    EXPECT_CALL(mockLogger, log(_, _)).Times(::testing::AtLeast(1)); // Multiple log calls for route tracking
 
-    orderManager.handleNewOrder(jsonData);
+    std::string result = orderManager.handleNewOrder(jsonData);
+
+    // Verify the response contains status and stops
+    json response = json::parse(result);
+    EXPECT_EQ(response["status"], "success");
+    EXPECT_EQ(response["order_id"], "order123");
+    ASSERT_TRUE(response.contains("stops"));
+    EXPECT_EQ(response["stops"].size(), 2);
+    EXPECT_EQ(response["stops"][0], "warehouse1");
+    EXPECT_EQ(response["stops"][1], "warehouse2");
+}
+
+// Test handleNewOrder with deduplication — same warehouse fulfills multiple items
+TEST_F(OrderManagerTest, HandleNewOrder_StopsDeduplication)
+{
+    std::string jsonData = R"({
+        "hub_id": "hub123",
+        "order_id": "order456",
+        "items_needed": [
+            {"item_type": 1, "quantity": 10},
+            {"item_type": 2, "quantity": 5},
+            {"item_type": 3, "quantity": 8}
+        ]
+    })";
+
+    EXPECT_CALL(mockDatabase, insertOrUpdateOrder("order456", "hub123", 1, 10)).WillOnce(Return(true));
+    EXPECT_CALL(mockDatabase, insertOrUpdateOrder("order456", "hub123", 2, 5)).WillOnce(Return(true));
+    EXPECT_CALL(mockDatabase, insertOrUpdateOrder("order456", "hub123", 3, 8)).WillOnce(Return(true));
+
+    // All items fulfilled by same warehouse — should deduplicate
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(1, 10)).WillOnce(Return("warehouse1"));
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(2, 5)).WillOnce(Return("warehouse1"));
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(3, 8)).WillOnce(Return("warehouse1"));
+    EXPECT_CALL(mockLogger, log(_, _)).Times(::testing::AtLeast(1));
+
+    std::string result = orderManager.handleNewOrder(jsonData);
+
+    json response = json::parse(result);
+    EXPECT_EQ(response["status"], "success");
+    EXPECT_EQ(response["stops"].size(), 1); // Only 1 unique warehouse
+    EXPECT_EQ(response["stops"][0], "warehouse1");
+}
+
+// Test handleNewOrder with partial warehouse availability
+TEST_F(OrderManagerTest, HandleNewOrder_PartialWarehousesAvailable)
+{
+    std::string jsonData = R"({
+        "hub_id": "hub123",
+        "order_id": "order789",
+        "items_needed": [
+            {"item_type": 1, "quantity": 10},
+            {"item_type": 2, "quantity": 5}
+        ]
+    })";
+
+    EXPECT_CALL(mockDatabase, insertOrUpdateOrder("order789", "hub123", 1, 10)).WillOnce(Return(true));
+    EXPECT_CALL(mockDatabase, insertOrUpdateOrder("order789", "hub123", 2, 5)).WillOnce(Return(true));
+
+    // First item has warehouse, second doesn't
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(1, 10)).WillOnce(Return("warehouse1"));
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(2, 5)).WillOnce(Return(""));
+    EXPECT_CALL(mockLogger, log(_, _)).Times(::testing::AtLeast(1));
+
+    std::string result = orderManager.handleNewOrder(jsonData);
+
+    json response = json::parse(result);
+    EXPECT_EQ(response["status"], "success");
+    EXPECT_EQ(response["stops"].size(), 1); // Only item type 1's warehouse
+    EXPECT_EQ(response["stops"][0], "warehouse1");
 }
 
 TEST_F(OrderManagerTest, HandleNewOrder_InvalidItems)
@@ -82,9 +152,9 @@ TEST_F(OrderManagerTest, HandleNewOrder_InvalidItems)
         ]
     })";
 
-    EXPECT_CALL(mockLogger, log(_, _)).Times(0);
-
-    orderManager.handleNewOrder(jsonData);
+    std::string result = orderManager.handleNewOrder(jsonData);
+    json response = json::parse(result);
+    EXPECT_EQ(response["status"], "error");
 }
 
 TEST_F(OrderManagerTest, HandleNewOrder_InvalidArray)
@@ -95,9 +165,9 @@ TEST_F(OrderManagerTest, HandleNewOrder_InvalidArray)
         "items_needed": "invalid_array"
     })";
 
-    EXPECT_CALL(mockLogger, log(_, _)).Times(0);
-
-    orderManager.handleNewOrder(jsonData);
+    std::string result = orderManager.handleNewOrder(jsonData);
+    json response = json::parse(result);
+    EXPECT_EQ(response["status"], "error");
 }
 
 TEST_F(OrderManagerTest, HandleNewOrder_InvalidHubID)
@@ -111,9 +181,9 @@ TEST_F(OrderManagerTest, HandleNewOrder_InvalidHubID)
         ]
     })";
 
-    EXPECT_CALL(mockLogger, log(_, _)).Times(0);
-
-    orderManager.handleNewOrder(jsonData);
+    std::string result = orderManager.handleNewOrder(jsonData);
+    json response = json::parse(result);
+    EXPECT_EQ(response["status"], "error");
 }
 
 TEST_F(OrderManagerTest, HandleNewOrder_InvalidOrderID)
@@ -127,9 +197,9 @@ TEST_F(OrderManagerTest, HandleNewOrder_InvalidOrderID)
         ]
     })";
 
-    EXPECT_CALL(mockLogger, log(_, _)).Times(0);
-
-    orderManager.handleNewOrder(jsonData);
+    std::string result = orderManager.handleNewOrder(jsonData);
+    json response = json::parse(result);
+    EXPECT_EQ(response["status"], "error");
 }
 
 // Test processApprovedOrders
@@ -243,7 +313,10 @@ TEST_F(OrderManagerTest, HandleNewOrder_ErrorDB)
     EXPECT_CALL(mockDatabase, insertOrUpdateOrder("order123", "hub123", 1, 10)).WillOnce(Return(false));
     EXPECT_CALL(mockLogger, log("OrderManager", "[ERROR] Failed to insert/update order in DB."));
 
-    orderManager.handleNewOrder(jsonData);
+    std::string result = orderManager.handleNewOrder(jsonData);
+    json response = json::parse(result);
+    EXPECT_EQ(response["status"], "error");
+    EXPECT_EQ(response["message"], "Failed to insert order in database");
 }
 
 // SupplyRequest error communication with warehouse

@@ -1,0 +1,52 @@
+/*
+ * boards/esp32.overlay
+ * Device-tree overlay for ESP32 DevKitC WROOM
+ *
+ * Wiring assumed:
+ *   SOS button      GPIO 0  (active-low, internal pull-up)
+ *   Delivered button GPIO 4  (active-low, internal pull-up)
+ *   ILI9341 CS      GPIO 15
+ *   ILI9341 DC      GPIO 2
+ *   ILI9341 RESET   GPIO 5
+ *   ILI9341 MOSI    GPIO 23  (SPI2 MOSI)
+ *   ILI9341 CLK     GPIO 18  (SPI2 CLK)
+ */
+
+/ {
+    buttons {
+        compatible = "gpio-keys";
+
+        sos_button: sos_button {
+            label = "SOS";
+            gpios = <&gpio0 0 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        };
+
+        delivered_button: delivered_button {
+            label = "DELIVERED";
+            gpios = <&gpio0 4 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        };
+    };
+
+    aliases {
+        sos-btn       = &sos_button;
+        delivered-btn = &delivered_button;
+    };
+};
+
+/* ILI9341 over SPI2 */
+&spi2 {
+    status = "okay";
+    pinctrl-0 = <&spim2_mosi_gpio23 &spim2_clk_gpio18>;
+    pinctrl-names = "default";
+    cs-gpios = <&gpio0 15 GPIO_ACTIVE_LOW>;
+
+    ili9341: ili9341@0 {
+        compatible = "ilitek,ili9341";
+        reg = <0>;
+        spi-max-frequency = <25000000>;
+        width  = <320>;
+        height = <240>;
+        dc-gpios    = <&gpio0 2  GPIO_ACTIVE_HIGH>;
+        reset-gpios = <&gpio0 5  GPIO_ACTIVE_LOW>;
+    };
+};
