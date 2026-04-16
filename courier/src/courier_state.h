@@ -25,6 +25,7 @@ struct k_mutex
     pthread_mutex_t m;
 };
 
+/* Declare but don't define — they will be defined as static inline in courier_state.c */
 int k_mutex_init(struct k_mutex* mu);
 int k_mutex_lock(struct k_mutex* mu, int timeout);
 int k_mutex_unlock(struct k_mutex* mu);

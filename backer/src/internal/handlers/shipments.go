@@ -37,7 +37,7 @@ type createShipmentResponse struct {
 // dispatchRequest is the expected body for POST /dispatch.
 type dispatchRequest struct {
 	ShipmentID string   `json:"shipment_id"`
-	Status     string   `json:"status"` // "Delivered" or "Canceled"
+	Status     string   `json:"status"` // "Shipped" or "Canceled"
 	EmployeeID string   `json:"employee_id"`
 	Stops      []string `json:"stops"`
 }
@@ -125,6 +125,7 @@ func CreateShipment(cpp bridge.Bridge, mqProd mq.Publisher) http.HandlerFunc {
 			event := mq.ShipmentEvent{
 				ShipmentID: shipmentID,
 				HubID:      req.OriginID,
+				Stops:      stops,
 				Items:      toMQItems(req.Items),
 				Timestamp:  time.Now(),
 			}
@@ -184,9 +185,8 @@ func GetStatus(cpp bridge.Bridge) http.HandlerFunc {
 }
 
 // Dispatch handles POST /dispatch.
-// Routes to order_dispatch (Delivered) or cancel_order (Canceled) on the C++ core.
-// These are two separate handlers in the C++ RequestRouter.
-// When dispatching with status "Delivered", also publishes the route to the courier via MQTT.
+// Routes to order_dispatch (Shipped) or cancel_order (Canceled) on the C++ core.
+// When dispatching with status "Shipped", also publishes the route to the courier via MQTT.
 func Dispatch(cpp bridge.Bridge, routePublisher *mq.RoutePublisher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req dispatchRequest
@@ -198,25 +198,47 @@ func Dispatch(cpp bridge.Bridge, routePublisher *mq.RoutePublisher) http.Handler
 			http.Error(w, `{"error":"shipment_id is required"}`, http.StatusBadRequest)
 			return
 		}
-		if req.Status != "Delivered" && req.Status != "Canceled" {
-			http.Error(w, `{"error":"status must be Delivered or Canceled"}`, http.StatusBadRequest)
+		if req.Status != "Shipped" && req.Status != "Canceled" {
+			http.Error(w, `{"error":"status must be Shipped or Canceled"}`, http.StatusBadRequest)
 			return
 		}
 
-		// Only require EmployeeID and Stops for "Delivered" status (dispatch to courier)
-		if req.Status == "Delivered" {
+		// Only require EmployeeID and Stops for "Shipped" status (dispatch to courier)
+		if req.Status == "Shipped" {
 			if req.EmployeeID == "" {
-				http.Error(w, `{"error":"employee_id is required for Delivered status"}`, http.StatusBadRequest)
+				http.Error(w, `{"error":"employee_id is required for Shipped status"}`, http.StatusBadRequest)
 				return
 			}
 			if len(req.Stops) == 0 {
-				http.Error(w, `{"error":"stops cannot be empty for Delivered status"}`, http.StatusBadRequest)
+				http.Error(w, `{"error":"stops cannot be empty for Shipped status"}`, http.StatusBadRequest)
 				return
 			}
 		}
 
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
+
+		statusResp, err := cpp.SendRequest(ctx, bridge.StatusQuery{
+			Type:      "order_status",
+			HubID:     "backer",
+			OrderID:   req.ShipmentID,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+		if err != nil {
+			log.Printf("[ERROR] Dispatch: status precheck bridge error: %v", err)
+			http.Error(w, `{"error":"core service unavailable"}`, http.StatusServiceUnavailable)
+			return
+		}
+		if status, ok := statusResp["status"].(string); ok {
+			switch status {
+			case "error":
+				http.Error(w, `{"error":"shipment not found"}`, http.StatusNotFound)
+				return
+			case "Canceled", "Delivered", "Shipped":
+				http.Error(w, `{"error":"shipment already finalized"}`, http.StatusConflict)
+				return
+			}
+		}
 
 		var cppReq any
 
@@ -231,7 +253,7 @@ func Dispatch(cpp bridge.Bridge, routePublisher *mq.RoutePublisher) http.Handler
 			cppReq = bridge.DispatchMsg{
 				Type:         "order_dispatch",
 				OrderID:      req.ShipmentID,
-				Status:       req.Status,
+				Status:       "Shipped",
 				ItemsShipped: []bridge.OrderItem{},
 			}
 		}
@@ -249,16 +271,25 @@ func Dispatch(cpp bridge.Bridge, routePublisher *mq.RoutePublisher) http.Handler
 			return
 		}
 
-		// Publish route to courier asynchronously if status is "Delivered"
-		if req.Status == "Delivered" && routePublisher != nil {
+		// Publish route to courier asynchronously if status is "Shipped"
+		if req.Status == "Shipped" && routePublisher != nil {
 			go func() {
+				fullRoute, err := routePublisher.AppendStops(req.EmployeeID, req.Stops)
+				if err != nil {
+					log.Printf("[WARN] Dispatch: failed to append route for courier %s: %v", req.EmployeeID, err)
+					return
+				}
+				if err := routePublisher.RegisterShipmentStops(req.EmployeeID, req.ShipmentID, req.Stops); err != nil {
+					log.Printf("[WARN] Dispatch: failed to track shipment %s for courier %s: %v", req.ShipmentID, req.EmployeeID, err)
+				}
+
 				publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				if err := routePublisher.PublishRoute(publishCtx, req.EmployeeID, req.Stops); err != nil {
+				if err := routePublisher.PublishRoute(publishCtx, req.EmployeeID, fullRoute); err != nil {
 					log.Printf("[WARN] Dispatch: failed to publish route to courier %s: %v", req.EmployeeID, err)
 				}
 			}()
-		} else if req.Status == "Delivered" {
+		} else if req.Status == "Shipped" {
 			log.Printf("[WARN] Dispatch: route publisher not configured, skipping route publish for courier %s", req.EmployeeID)
 		}
 

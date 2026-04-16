@@ -8,3 +8,4 @@ project (Paranoid-Linux VERSION 1.0.0 DESCRIPTION "Internal-Supply-System" LANGU
 add_subdirectory(server)
 add_subdirectory(hub)
 add_subdirectory(warehouse)
+add_subdirectory(courier/sim)

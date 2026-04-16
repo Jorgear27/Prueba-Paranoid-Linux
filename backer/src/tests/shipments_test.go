@@ -203,16 +203,23 @@ func TestDispatch_InvalidStatus(t *testing.T) {
 	}
 }
 
-func TestDispatch_Delivered_OK(t *testing.T) {
+func TestDispatch_Shipped_OK(t *testing.T) {
 	cpp := &fakeBridge{response: map[string]any{"status": "success"}}
 	pub := &fakePublisher{}
 	r := authedRouter(cpp, pub)
 
-	body := `{"shipment_id":"SHP001","status":"Delivered","employee_id":"E001","stops":["warehouse1","warehouse2"]}`
+	body := `{"shipment_id":"SHP001","status":"Shipped","employee_id":"E001","stops":["warehouse1","warehouse2"]}`
 	w := doRequest(r, "POST", "/dispatch", []byte(body))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	msg, ok := cpp.lastSent.(bridge.DispatchMsg)
+	if !ok {
+		t.Fatalf("expected bridge.DispatchMsg, got %T", cpp.lastSent)
+	}
+	if msg.Status != "Shipped" {
+		t.Fatalf("expected core dispatch status Shipped, got %q", msg.Status)
 	}
 }
 
@@ -221,7 +228,7 @@ func TestDispatch_Delivered_MissingEmployeeID_Returns400(t *testing.T) {
 	pub := &fakePublisher{}
 	r := authedRouter(cpp, pub)
 
-	body := `{"shipment_id":"SHP001","status":"Delivered","stops":["warehouse1"]}`
+	body := `{"shipment_id":"SHP001","status":"Shipped","stops":["warehouse1"]}`
 	w := doRequest(r, "POST", "/dispatch", []byte(body))
 
 	if w.Code != http.StatusBadRequest {
@@ -229,12 +236,12 @@ func TestDispatch_Delivered_MissingEmployeeID_Returns400(t *testing.T) {
 	}
 }
 
-func TestDispatch_Delivered_EmptyStops_Returns400(t *testing.T) {
+func TestDispatch_Shipped_EmptyStops_Returns400(t *testing.T) {
 	cpp := &fakeBridge{response: map[string]any{"status": "success"}}
 	pub := &fakePublisher{}
 	r := authedRouter(cpp, pub)
 
-	body := `{"shipment_id":"SHP001","status":"Delivered","employee_id":"E001","stops":[]}`
+	body := `{"shipment_id":"SHP001","status":"Shipped","employee_id":"E001","stops":[]}`
 	w := doRequest(r, "POST", "/dispatch", []byte(body))
 
 	if w.Code != http.StatusBadRequest {
@@ -256,12 +263,12 @@ func TestDispatch_Canceled_OK(t *testing.T) {
 }
 
 func TestDispatch_AlreadyDispatched_Returns409(t *testing.T) {
-	// C++ core returns error when order is already dispatched
-	cpp := &fakeBridge{response: map[string]any{"status": "error", "message": "already dispatched"}}
+	// Precheck sees terminal state and rejects before dispatch.
+	cpp := &fakeBridge{response: map[string]any{"status": "Shipped"}}
 	pub := &fakePublisher{}
 	r := authedRouter(cpp, pub)
 
-	body := `{"shipment_id":"SHP001","status":"Delivered","employee_id":"E001","stops":["warehouse1"]}`
+	body := `{"shipment_id":"SHP001","status":"Shipped","employee_id":"E001","stops":["warehouse1"]}`
 	w := doRequest(r, "POST", "/dispatch", []byte(body))
 
 	if w.Code != http.StatusConflict {

@@ -1,6 +1,8 @@
 # Paranoid Linux
 
-Setup and local development guide for the Paranoid Linux project.
+---
+
+# Building the system
 
 ## 1. Prerequisites
 
@@ -76,26 +78,7 @@ Override if needed:
 export MONGO_URI="mongodb://localhost:27017"
 ```
 
-## 4. Start the Backer stack with Docker
-
-The Backer services live in [backer/init/docker-compose.yml](backer/init/docker-compose.yml). This stack expects the native C++ server and PostgreSQL to already be running on the host.
-
-From the `backer/init` directory, export the JWT secret and start the stack:
-
-```bash
-export JWT_SECRET="secret"
-docker compose up --build
-```
-
-If Docker access is restricted on your machine, either run the command with `sudo` or add your user to the `docker` group and log out/in again.
-
-If you use `sudo`, pass the secret through explicitly:
-
-```bash
-sudo env JWT_SECRET="secret" docker compose up --build
-```
-
-## 5. Initialize PostgreSQL
+## 4. Initialize PostgreSQL
 
 Start PostgreSQL and prepare database and user.
 
@@ -109,7 +92,7 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE paranoid_db TO server
 sudo -u postgres psql -d paranoid_db -f server/init/init_postgres.sql
 ```
 
-## 6. Conan setup
+## 5. Conan setup
 The use of a python environment is recommended
 ```bash
 python3 -m venv venv
@@ -129,7 +112,7 @@ Install dependencies and generate CMake toolchain files:
 conan install . -of build/Debug -s build_type=Debug --build=missing
 ```
 
-## 7. Configure and build
+## 6. Configure and build
 
 From repository root:
 
@@ -138,17 +121,302 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=./build/Debug/generators/conan_toolchain.cmake -
 make -j$(nproc)
 ```
 
-## 8. Run binaries
+## 7. Run the server
 
 From repository root after build:
 
 ```bash
 ./build/server/server
-./build/hub/hub
-./build/warehouse/warehouse
 ```
 
-## 9. Run tests
+## 8. Start the Backer stack with Docker
+
+The Backer services live in [backer/init/docker-compose.yml](backer/init/docker-compose.yml). This stack expects the native C++ server and PostgreSQL to already be running on the host.
+
+From the `backer/init` directory, export the JWT secret and start the stack:
+
+```bash
+export JWT_SECRET="secret"
+export AUTO_DISPATCH_ENABLED="true"
+export AUTO_DISPATCH_EMPLOYEE_ID="E001"
+export AUTO_DISPATCH_DELAY_MS="30000"
+docker compose up --build
+```
+
+Notes:
+
+- `AUTO_DISPATCH_ENABLED=true` enables event-driven dispatch from RabbitMQ shipment events.
+- `AUTO_DISPATCH_DELAY_MS=30000` keeps a 30s cancellation window before auto-dispatch.
+- `AUTO_DISPATCH_EMPLOYEE_ID` must match the courier simulator employee id.
+
+If Docker access is restricted on your machine, either run the command with `sudo` or add your user to the `docker` group and log out/in again.
+
+If you use `sudo`, pass the secret through explicitly:
+
+```bash
+sudo env JWT_SECRET="secret" AUTO_DISPATCH_ENABLED="true" AUTO_DISPATCH_EMPLOYEE_ID="E001" AUTO_DISPATCH_DELAY_MS="30000" docker compose up --build
+```
+---
+
+# Testing Functionalities
+## 1. Clients Simulation
+
+To connect many hubs/warehouses automatically and exercise core flows use:
+
+```bash
+python3 scripts/LiveClients_GraphCreation_TCP-HTTP.py
+```
+
+Default scenario file:
+
+- scripts/scenarios/multi_clients_simulation.json
+
+
+By default this scenario reads:
+
+- scripts/maps/graph_routing_map_7w_7h.json
+
+
+Avoid http cheks if not needed:
+```bash
+python3 scripts/LiveClients_GraphCreation_TCP-HTTP.py --no-http-checks
+```
+
+## 2. Check Go functionalities
+
+- **Health check:**
+``` bash
+curl http://localhost/health
+```
+
+- **First create a JWT token (required for all protected endpoints)**
+``` bash
+export JWT_SECRET="secret"
+
+export TOKEN=$(python3 - <<'PY'
+import base64, json, hmac, hashlib, time, os
+
+secret = os.environ["JWT_SECRET"].encode()
+
+def b64url(x):
+    return base64.urlsafe_b64encode(x).rstrip(b'=').decode()
+
+header = {"alg":"HS256","typ":"JWT"}
+payload = {
+    "uid":"demo-user",
+    "role":"citizen",
+    "exp": int(time.time()) + 3600
+}
+
+h = b64url(json.dumps(header,separators=(',',':')).encode())
+p = b64url(json.dumps(payload,separators=(',',':')).encode())
+s = b64url(hmac.new(secret, f"{h}.{p}".encode(), hashlib.sha256).digest())
+print(f"{h}.{p}.{s}")
+PY
+)
+
+echo "$TOKEN"
+```
+
+- **POST /shipments (auto-dispatch flow)**
+
+Purpose: create a shipment order in the C++ core and publish a shipment event to RabbitMQ.
+Auth: required.
+
+``` bash
+SHIPMENT_ID=$(curl -s -X POST http://localhost/shipments \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin_id":"H001",
+    "destination_id":"W004",
+    "items":[{"item_type":1,"quantity":10},{"item_type":2,"quantity":3}]
+  }' | python3 -c 'import sys, json; print(json.load(sys.stdin)["shipment_id"])')
+
+echo "$SHIPMENT_ID"
+```
+
+With auto-dispatch enabled, Backer will dispatch this shipment automatically after `AUTO_DISPATCH_DELAY_MS`
+and publish route stops to the courier topic.
+
+Backer now keeps a per-employee in-memory route queue: each dispatched shipment appends
+its stops to the employee route (instead of replacing previous stops) and publishes
+the full updated route to `routes/{employee_id}`.
+
+Backer also consumes `delivered/{employee_id}` events and removes completed stops from
+that employee route queue, so pending routes do not grow indefinitely.
+
+The C++ core still returns shipment stops from its normal warehouse selection flow; Backer is responsible for accumulating those stops in the employee route queue before publishing to `routes/{employee_id}`.
+
+- **GET /status/{id}**
+
+Purpose: query shipment status from C++ core.
+Auth: required.
+
+``` bash
+curl -i "http://localhost/status/$SHIPMENT_ID" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Optional: poll status until it transitions from pending to dispatched/delivered.
+
+```bash
+watch -n 2 "curl -s http://localhost/status/$SHIPMENT_ID -H 'Authorization: Bearer $TOKEN'"
+```
+
+- **POST /dispatch (optional manual override)**
+
+Purpose:
+- Delivered: mark shipment dispatched and publish route to courier topic routes/{employee_id}
+- Canceled: cancel shipment
+Auth: required.
+
+You only need this when:
+
+- Auto-dispatch is disabled (`AUTO_DISPATCH_ENABLED=false`), or
+- You want to force a manual dispatch/cancel action.
+
+Delivered:
+``` bash
+curl -i -X POST http://localhost/dispatch \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shipment_id":"'$SHIPMENT_ID'",
+    "status":"Delivered",
+    "employee_id":"E001",
+    "stops":["W003","W007","H001"]
+  }'
+```
+
+Canceled (in the 30s window):
+``` bash
+curl -i -X POST http://localhost/dispatch \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shipment_id":"'$SHIPMENT_ID'",
+    "status":"Canceled"
+  }'
+```
+
+- **GET /predict**
+
+Purpose: ask ML predictor for ETA/cost/box size; if predictor fails, returns fallback estimate.
+Auth: required.
+
+``` bash
+curl -i "http://localhost/predict?origin_id=H001&destination_id=W001&weight_kg=10&total_qty=25" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+- **GET /metrics**
+
+Purpose: Prometheus metrics endpoint.
+Auth: not required.
+
+``` bash
+curl -s http://localhost/metrics | head -n 40
+```
+
+
+## 3. Run Courier simulator
+
+### Qt desktop simulator
+
+The simulator is useful to visualize route reception, GPS tracking, SOS, and delivery events.
+
+```bash
+sudo apt-get install -y qtbase5-dev libmosquitto-dev pkg-config mosquitto-clients
+cd courier/sim
+cmake -B build -DCMAKE_BUILD_TYPE=Debug \
+  -DEMPLOYEE_ID='"E001"' \
+  -DMQTT_BROKER_ADDR='"127.0.0.1"' \
+  -DMQTT_BROKER_PORT=1883
+cmake --build build -j
+COURIER_EMPLOYEE_ID=E001 COURIER_BROKER_ADDR=127.0.0.1 COURIER_BROKER_PORT=1883 ./build/courier_sim
+```
+
+### Courier functionality checks
+
+In separate terminals, subscribe to the topics the courier uses:
+
+```bash
+mosquitto_sub -h 127.0.0.1 -p 1883 -t routes/E001 -v
+mosquitto_sub -h 127.0.0.1 -p 1883 -t tracking/E001 -v
+mosquitto_sub -h 127.0.0.1 -p 1883 -t alerts/sos/E001 -v
+mosquitto_sub -h 127.0.0.1 -p 1883 -t delivered/E001 -v
+```
+
+Or we can visualize it on RabbitMQ:
+
+Backer publishes to amq.topic with AMQP key like routes.E001.
+MQTT plugin maps dots to slashes. Courier receives MQTT topic routes/E001.
+
+- Create queue debug.routes
+Add binding:
+- From exchange amq.topic
+- Routing keys:
+  - routes.#
+  - tracking.#
+  - alerts.sos.#
+  - delivered.#
+
+Expected behavior:
+
+- The UI shows the current stop and the next destination.
+- The route can contain multiple warehouse stops as shipments are appended to the employee route queue.
+- Tracking is published every 5 seconds.
+- SOS publishes a JSON alert to `alerts/sos/{employee_id}`.
+- Delivered publishes `{"stop":"<name>","status":"done"}` to `delivered/{employee_id}`.
+
+## 4. Graphical User Interfaces (Endpoints)
+
+- **[RabbitMQ](http://localhost:15672)**
+
+RabbitMQ Management inspects and tests messaging flows
+
+> Exchange: entry point where publishers send messages
+> Queue: storage for messages
+> Binding: rule connecting exchange -> queue
+> Routing key: label used (especially in topic exchange)
+
+- Here yo can create debug queues:
+debug.shipments
+debug.routes
+
+- Bind queues:
+debug.shipments bound to shipments exchange
+debug.routes bound to amq.topic with key like routes.E001
+
+We can also publish methods directly from RabbitMQ
+
+
+- **[Prometheus](http://localhost:9091)**
+
+Prometheus runs queries in order to visualize metrics
+
+Run `backer_requests_total` query
+
+- **[Traefik](http://localhost:80)**
+
+Requests hit Traefik first, then it forwards to Backer service.
+Can add load balancing, middleware, circuit breaker, TLS, routing rules.
+
+
+- **[Eureka](http://localhost:8761)**
+
+Service discovery registry. Services register themselves (Backer registers as `BACKER`)
+Other services can discover healthy instances dynamically
+
+It becomes useful when we have many services/instances that change addresses frequently.
+
+---
+
+# Run tests
+
+## 1. Server and Clients test
+This tests all core functionalites of the server (c++) and the clients (c), including graph routing algorithms.
 
 From repository root:
 
@@ -156,21 +424,80 @@ From repository root:
 ctest --test-dir build --output-on-failure
 ```
 
-## 10. Troubleshooting
+## 2. Full graph routing simulation test
 
-### Error: Package mongo-cxx-driver not resolved
-- Ensure conancenter points to center2:
-  - conan remote update conancenter --url="https://center2.conan.io"
+This scenario validates end-to-end behavior:
 
-### Error: conan_toolchain.cmake not found
-- Run Conan install first:
-  - conan install . -of build/Debug -s build_type=Debug --build=missing
+- client authentication
+- inventory sync from warehouses
+- order creation from a hub
+- waiting through the 30s cancellation window
+- warehouse dispatch and hub delivery update
+- warehouse restocks
+- HTTP graph algorithm checks before and after restocks
 
-### Error: could not connect to MongoDB at localhost:27017
-- Start MongoDB container:
-  - sudo docker run -d --name paranoid-mongo -p 27017:27017 mongo:7
+Run:
 
-## 11. Visual Graph Views (Topology + Algorithms)
+```bash
+python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py
+```
+
+Default scenario file:
+
+- scripts/scenarios/order_lifecycle_simulation.json
+
+Useful options:
+
+```bash
+python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --scenario scripts/scenarios/order_lifecycle_simulation.json
+```
+
+```bash
+python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --no-http-checks
+```
+
+```bash
+python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --no-disconnect
+```
+
+## 3. Run Backer Go tests
+
+If you have Go 1.26.x or newer installed locally:
+
+```bash
+cd backer/src
+go test ./tests/... -v
+go test ./... -v
+```
+
+If your local Go version is older, use Docker instead:
+
+```bash
+cd backer/src
+docker run --rm -v "$PWD":/app -w /app golang:1.26-alpine sh -lc "go mod download && go test ./tests/... -v
+```
+
+## 4. Run Courier tests and simulator (Unity)
+
+The Unity test framework is vendored as a submodule under [courier/src/unity](courier/src/unity).
+
+If this is a fresh clone, initialize the submodule first:
+
+```bash
+git submodule update --init --recursive
+```
+
+Run the host test binary:
+
+```bash
+cd courier/src
+gcc -I. -Iunity/src test_mqtt_handler.c courier_state.c unity/src/unity.c -lpthread -o test_mqtt_handler
+./test_mqtt_handler
+```
+
+# Visual utilites
+
+## 1. Visual Graph Views (Topology + Algorithms)
 
 You can generate visual files from the fixture map to inspect:
 
@@ -222,166 +549,3 @@ Install Graphviz if needed:
 ```bash
 sudo apt-get install -y graphviz
 ```
-
-## 12. Clients Simulation
-
-To connect many hubs/warehouses automatically and exercise core TCP flows
-(authentication, inventory updates, restock, order request, order status), use:
-
-```bash
-python3 scripts/LiveClients_GraphCreation_TCP-HTTP.py
-```
-
-Default scenario file:
-
-- scripts/scenarios/multi_clients_simulation.json
-
-
-By default this scenario reads:
-
-- scripts/maps/graph_routing_map_7w_7h.json
-
-
-Useful options:
-
-```bash
-python3 scripts/LiveClients_GraphCreation_TCP-HTTP.py --scenario scripts/scenarios/multi_clients_simulation.json
-```
-
-```bash
-python3 scripts/LiveClients_GraphCreation_TCP-HTTP.py --host 127.0.0.1 --port 8080 --no-http-checks
-```
-
-```bash
-python3 scripts/LiveClients_GraphCreation_TCP-HTTP.py --no-core-flows --no-disconnect
-```
-
-Notes:
-
-- Start `./build/server/server` first.
-- Keep MongoDB/PostgreSQL running if you want persistent graph/results behavior.
-- The simulator opens one TCP connection per node in the map, prints server responses, and then closes cleanly.
-
-
-## 13. Full order lifecycle simulation (30s window + restock + graph checks)
-
-This scenario validates end-to-end behavior:
-
-- client authentication
-- inventory sync from warehouses
-- order creation from a hub
-- waiting through the 30s cancellation window
-- warehouse dispatch and hub delivery update
-- warehouse restocks
-- HTTP graph algorithm checks before and after restocks
-
-Run:
-
-```bash
-python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py
-```
-
-Default scenario file:
-
-- scripts/scenarios/order_lifecycle_simulation.json
-
-Useful options:
-
-```bash
-python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --scenario scripts/scenarios/order_lifecycle_simulation.json
-```
-
-```bash
-python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --no-http-checks
-```
-
-```bash
-python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --no-disconnect
-```
-
-## 14. Run Backer Go tests
-
-The Backer tests live in [backer/src/tests](backer/src/tests).
-
-If you have Go 1.26.x or newer installed locally:
-
-```bash
-cd backer/src
-go test ./tests/... -v
-go test ./... -v
-```
-
-If your local Go version is older, use Docker instead:
-
-```bash
-cd backer/src
-docker run --rm -v "$PWD":/app -w /app golang:1.26-alpine sh -lc "go mod download && go test ./tests/... -v"
-```
-
-Useful checks for Backer functionality:
-
-- `POST /shipments` should return `shipment_id`, `status`, and the courier `stops` list.
-- `POST /dispatch` with `status: "Delivered"` should require `employee_id` and `stops`.
-- `GET /health` should report `cpp_bridge` and `rabbitmq` as `ok`.
-
-## 15. Run Courier tests and simulator
-
-The Courier firmware lives in [courier](courier). It has two test paths:
-
-### Host unit tests
-
-These validate the shared courier state and payload builders on your machine.
-The Unity test framework is vendored as a submodule under [courier/src/unity](courier/src/unity).
-
-If this is a fresh clone, initialize the submodule first:
-
-```bash
-git submodule update --init --recursive
-```
-
-Run the host test binary:
-
-```bash
-cd courier/src
-gcc -I. -Iunity/src test_mqtt_handler.c courier_state.c unity/src/unity.c -lpthread -o test_mqtt_handler
-./test_mqtt_handler
-```
-
-### Qt desktop simulator
-
-The simulator is useful to visualize route reception, GPS tracking, SOS, and delivery events.
-
-```bash
-sudo apt-get install -y qtbase5-dev libmosquitto-dev pkg-config mosquitto-clients
-cd courier/sim
-cmake -B build -DCMAKE_BUILD_TYPE=Debug \
-  -DEMPLOYEE_ID='"E001"' \
-  -DMQTT_BROKER_ADDR='"127.0.0.1"' \
-  -DMQTT_BROKER_PORT=1883
-cmake --build build -j
-COURIER_EMPLOYEE_ID=E001 COURIER_BROKER_ADDR=127.0.0.1 COURIER_BROKER_PORT=1883 ./build/courier_sim
-```
-
-### Courier functionality checks
-
-In separate terminals, subscribe to the topics the courier uses:
-
-```bash
-mosquitto_sub -h 127.0.0.1 -p 1883 -t routes/E001 -v
-mosquitto_sub -h 127.0.0.1 -p 1883 -t tracking/E001 -v
-mosquitto_sub -h 127.0.0.1 -p 1883 -t alerts/sos/E001 -v
-mosquitto_sub -h 127.0.0.1 -p 1883 -t delivered/E001 -v
-```
-
-Publish a route to see the UI update:
-
-```bash
-mosquitto_pub -h 127.0.0.1 -p 1883 -t routes/E001 -m '["Mercado Sur","Mercado Norte"]'
-```
-
-Expected behavior:
-
-- The UI shows the current stop and the next destination.
-- Tracking is published every 5 seconds.
-- SOS publishes a JSON alert to `alerts/sos/{employee_id}`.
-- Delivered publishes `{"stop":"<name>","status":"done"}` to `delivered/{employee_id}`.

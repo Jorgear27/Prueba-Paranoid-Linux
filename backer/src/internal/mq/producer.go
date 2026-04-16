@@ -20,6 +20,7 @@ const exchangeName = "shipments"
 type ShipmentEvent struct {
 	ShipmentID string    `json:"shipment_id"`
 	HubID      string    `json:"hub_id"`
+	Stops      []string  `json:"stops"`
 	Items      []Item    `json:"items"`
 	Timestamp  time.Time `json:"timestamp"`
 }
@@ -203,10 +204,10 @@ func (p *Producer) PublishToExchange(ctx context.Context, exchange, routingKey s
 
 	if err := p.channel.PublishWithContext(
 		ctx,
-		exchange,    // exchange name
-		routingKey,  // routing key
-		false,       // mandatory
-		false,       // immediate
+		exchange,   // exchange name
+		routingKey, // routing key
+		false,      // mandatory
+		false,      // immediate
 		msg,
 	); err != nil {
 		p.teardown()

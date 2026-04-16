@@ -12,6 +12,12 @@
  */
 
 #include "ui_sim.h"
+
+extern "C"
+{
+#include "courier_state.h"
+}
+
 #include <QApplication>
 #include <QFont>
 #include <QFrame>
@@ -129,8 +135,14 @@ class CourierWindow : public QMainWindow
   private slots:
     void refreshLabels()
     {
-        // Implemented by the glue in main_sim.cpp
-        emit routeUpdated();
+        char current[MAX_STOP_NAME] = "---";
+        char next[MAX_STOP_NAME] = "---";
+
+        courier_state_get_current_stop(current, sizeof(current));
+        courier_state_get_next_stop(next, sizeof(next));
+
+        labelCurrent->setText(QString("NOW:  %1").arg(current));
+        labelNext->setText(QString("NEXT: %1").arg(next));
     }
 };
 

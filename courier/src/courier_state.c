@@ -5,6 +5,7 @@
 #if defined(__ZEPHYR__)
 #include <zephyr/logging/log.h>
 #else
+#include <pthread.h>
 #include <stdio.h>
 
 #define LOG_MODULE_REGISTER(name, level)
@@ -31,21 +32,24 @@
         fputc('\n', stderr);                                                                                           \
     } while (0)
 
-int k_mutex_init(struct k_mutex* mu)
+/* Only define mutex stubs when NOT in simulation mode (main_sim.cpp provides them in simulation) */
+#ifndef COURIER_SIMULATION
+static inline int k_mutex_init(struct k_mutex* mu)
 {
     return pthread_mutex_init(&mu->m, NULL);
 }
 
-int k_mutex_lock(struct k_mutex* mu, int timeout)
+static inline int k_mutex_lock(struct k_mutex* mu, int timeout)
 {
     (void)timeout;
     return pthread_mutex_lock(&mu->m);
 }
 
-int k_mutex_unlock(struct k_mutex* mu)
+static inline int k_mutex_unlock(struct k_mutex* mu)
 {
     return pthread_mutex_unlock(&mu->m);
 }
+#endif /* COURIER_SIMULATION */
 #endif
 
 LOG_MODULE_REGISTER(courier_state, LOG_LEVEL_DBG);

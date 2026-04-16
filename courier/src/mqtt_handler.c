@@ -3,7 +3,14 @@
 #include "ui/ui.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#if defined(COURIER_SIMULATION) && defined(MQTT_BACKEND_MOSQUITTO)
+#include <mosquitto.h>
+#endif
+
+#ifndef COURIER_SIMULATION
 #include <zephyr/data/json.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -11,9 +18,19 @@
 #include <zephyr/net/socket.h>
 
 LOG_MODULE_REGISTER(mqtt_handler, LOG_LEVEL_DBG);
+#else
+/* Simulation stubs — allow compilation without Zephyr */
+#define LOG_INF(fmt, ...) printf("[INFO] " fmt "\n", ##__VA_ARGS__)
+#define LOG_ERR(fmt, ...) printf("[ERROR] " fmt "\n", ##__VA_ARGS__)
+#define LOG_WRN(fmt, ...) printf("[WARN] " fmt "\n", ##__VA_ARGS__)
+#define LOG_DBG(fmt, ...) printf("[DEBUG] " fmt "\n", ##__VA_ARGS__)
+#define ARG_UNUSED(x) (void)(x)
+#endif
+
+#ifndef COURIER_SIMULATION
 
 /* ---------------------------------------------------------------------------
- * Constants
+ * Constants (Zephyr build only)
  * ------------------------------------------------------------------------- */
 
 #define MQTT_RX_BUF_SIZE 1024
@@ -24,7 +41,7 @@ LOG_MODULE_REGISTER(mqtt_handler, LOG_LEVEL_DBG);
 #define KEEPALIVE_TIMEOUT K_SECONDS(30)
 
 /* ---------------------------------------------------------------------------
- * Static state
+ * Static state (Zephyr build only)
  * ------------------------------------------------------------------------- */
 
 static struct mqtt_client s_client;
@@ -38,6 +55,17 @@ static struct k_mutex s_mqtt_mutex;
 
 /* Semaphore signalled when CONNACK is received. */
 static struct k_sem s_connack_sem;
+
+#else
+
+/* Simulation stubs for static state */
+#define MQTT_RX_BUF_SIZE 1024
+#define MQTT_TX_BUF_SIZE 512
+#define TOPIC_BUF_SIZE 64
+#define PAYLOAD_BUF_SIZE 256
+static char s_employee_id[MAX_EMPLOYEE_ID];
+
+#endif /* COURIER_SIMULATION */
 
 /* ---------------------------------------------------------------------------
  * Topic helpers
@@ -56,18 +84,26 @@ static void make_topic_sos(char* buf, size_t len)
 /* ---------------------------------------------------------------------------
  * Timestamp helper (Zephyr uptime in ISO-like format). With the esp32 we could use the
  * built-in RTC for real timestamps, but for simplicity we just use uptime here.
+ * In simulation, use a simple counter.
  * ------------------------------------------------------------------------- */
 
 static void get_timestamp(char* buf, size_t len)
 {
+#ifndef COURIER_SIMULATION
     int64_t ms = k_uptime_get();
     snprintf(buf, len, "T+%lld", (long long)ms);
+#else
+    static int sim_counter = 0;
+    snprintf(buf, len, "T+%d", sim_counter++);
+#endif
 }
 
 /* ---------------------------------------------------------------------------
  * Route JSON parser
  *
  * Expected payload: ["Stop A", "Stop B", "Stop C"]
+ * Shared by both Zephyr and simulation builds.
+ * Uses g_courier.lock which is guarded by k_mutex (works in both modes).
  * ------------------------------------------------------------------------- */
 
 static void parse_and_store_route(const char* payload, size_t len)
@@ -132,8 +168,11 @@ static void parse_and_store_route(const char* payload, size_t len)
     ui_notify_route_updated();
 }
 
+#ifndef COURIER_SIMULATION
+
 /* ---------------------------------------------------------------------------
  * MQTT event callback — called by the Zephyr MQTT stack from mqtt_input()
+ * (Zephyr build only)
  * ------------------------------------------------------------------------- */
 
 static void mqtt_event_handler(struct mqtt_client* client, const struct mqtt_evt* evt)
@@ -454,3 +493,270 @@ void mqtt_handler_task(void* p1, void* p2, void* p3)
         k_sleep(K_MSEC(100));
     }
 }
+
+#else /* COURIER_SIMULATION */
+
+/* ---------------------------------------------------------------------------
+ * MQTT simulation mode
+ * ------------------------------------------------------------------------- */
+
+#ifdef MQTT_BACKEND_MOSQUITTO
+
+static struct mosquitto* s_mosq;
+static bool s_connected;
+static bool s_requested_route_sub;
+
+static void sim_on_connect(struct mosquitto* mosq, void* obj, int rc)
+{
+    ARG_UNUSED(obj);
+
+    if (rc != 0)
+    {
+        LOG_ERR("[SIM] MQTT connect failed: rc=%d", rc);
+        s_connected = false;
+        return;
+    }
+
+    s_connected = true;
+    LOG_INF("[SIM] MQTT connected");
+
+    if (s_requested_route_sub)
+    {
+        char topic[TOPIC_BUF_SIZE];
+        make_topic(topic, sizeof(topic), "routes");
+        if (mosquitto_subscribe(mosq, NULL, topic, 1) == MOSQ_ERR_SUCCESS)
+        {
+            LOG_INF("[SIM] Subscribed to %s", topic);
+        }
+        else
+        {
+            LOG_ERR("[SIM] Failed to subscribe to %s", topic);
+        }
+    }
+}
+
+static void sim_on_message(struct mosquitto* mosq, void* obj, const struct mosquitto_message* msg)
+{
+    ARG_UNUSED(mosq);
+    ARG_UNUSED(obj);
+
+    if (msg == NULL || msg->topic == NULL || msg->payload == NULL || msg->payloadlen <= 0)
+    {
+        return;
+    }
+
+    char routes_topic[TOPIC_BUF_SIZE];
+    make_topic(routes_topic, sizeof(routes_topic), "routes");
+
+    if (strcmp(msg->topic, routes_topic) == 0)
+    {
+        parse_and_store_route((const char*)msg->payload, (size_t)msg->payloadlen);
+    }
+}
+
+mqtt_result_t mqtt_handler_init(const char* broker_addr, uint16_t broker_port, const char* employee_id)
+{
+    strncpy(s_employee_id, employee_id, MAX_EMPLOYEE_ID - 1);
+    s_employee_id[MAX_EMPLOYEE_ID - 1] = '\0';
+
+    s_connected = false;
+    s_requested_route_sub = false;
+
+    if (mosquitto_lib_init() != MOSQ_ERR_SUCCESS)
+    {
+        LOG_ERR("[SIM] mosquitto_lib_init failed");
+        return MQTT_ERR_CONNECT;
+    }
+
+    s_mosq = mosquitto_new(s_employee_id, true, NULL);
+    if (s_mosq == NULL)
+    {
+        LOG_ERR("[SIM] mosquitto_new failed");
+        return MQTT_ERR_CONNECT;
+    }
+
+    mosquitto_connect_callback_set(s_mosq, sim_on_connect);
+    mosquitto_message_callback_set(s_mosq, sim_on_message);
+
+    if (mosquitto_connect_async(s_mosq, broker_addr, (int)broker_port, 60) != MOSQ_ERR_SUCCESS)
+    {
+        LOG_ERR("[SIM] connect_async failed: %s:%d", broker_addr, (int)broker_port);
+        return MQTT_ERR_CONNECT;
+    }
+
+    if (mosquitto_loop_start(s_mosq) != MOSQ_ERR_SUCCESS)
+    {
+        LOG_ERR("[SIM] mosquitto_loop_start failed");
+        return MQTT_ERR_CONNECT;
+    }
+
+    LOG_INF("[SIM] MQTT init: broker=%s:%d employee=%s", broker_addr, (int)broker_port, employee_id);
+    return MQTT_OK;
+}
+
+mqtt_result_t mqtt_handler_subscribe_routes(void)
+{
+    char topic[TOPIC_BUF_SIZE];
+    make_topic(topic, sizeof(topic), "routes");
+    s_requested_route_sub = true;
+
+    if (!s_mosq)
+    {
+        return MQTT_ERR_SUBSCRIBE;
+    }
+
+    /* If already connected, subscribe immediately; otherwise callback subscribes on connect. */
+    if (s_connected)
+    {
+        if (mosquitto_subscribe(s_mosq, NULL, topic, 1) != MOSQ_ERR_SUCCESS)
+        {
+            LOG_ERR("[SIM] Failed to subscribe to %s", topic);
+            return MQTT_ERR_SUBSCRIBE;
+        }
+        LOG_INF("[SIM] Subscribed to %s", topic);
+    }
+    else
+    {
+        LOG_INF("[SIM] Will subscribe to %s after connect", topic);
+    }
+
+    return MQTT_OK;
+}
+
+mqtt_result_t mqtt_handler_publish_tracking(int32_t lat_e6, int32_t lon_e6, bool fix_valid)
+{
+    if (!fix_valid)
+    {
+        LOG_WRN("[SIM] GPS: no fix");
+        return MQTT_OK;
+    }
+
+    if (!s_mosq)
+    {
+        return MQTT_ERR_PUBLISH;
+    }
+
+    char ts[32];
+    char payload[PAYLOAD_BUF_SIZE];
+    char topic[TOPIC_BUF_SIZE];
+
+    get_timestamp(ts, sizeof(ts));
+    make_topic(topic, sizeof(topic), "tracking");
+
+    snprintf(payload, sizeof(payload), "{\"lat\":%d.%06d,\"lon\":%d.%06d,\"ts\":\"%s\"}", (int)(lat_e6 / 1000000),
+             (int)abs(lat_e6 % 1000000), (int)(lon_e6 / 1000000), (int)abs(lon_e6 % 1000000), ts);
+
+    if (mosquitto_publish(s_mosq, NULL, topic, (int)strlen(payload), payload, 0, false) != MOSQ_ERR_SUCCESS)
+    {
+        return MQTT_ERR_PUBLISH;
+    }
+
+    return MQTT_OK;
+}
+
+mqtt_result_t mqtt_handler_publish_sos(int32_t lat_e6, int32_t lon_e6)
+{
+    if (!s_mosq)
+    {
+        return MQTT_ERR_PUBLISH;
+    }
+
+    char ts[32];
+    char payload[PAYLOAD_BUF_SIZE];
+    char topic[TOPIC_BUF_SIZE];
+
+    get_timestamp(ts, sizeof(ts));
+    make_topic_sos(topic, sizeof(topic));
+
+    snprintf(payload, sizeof(payload), "{\"lat\":%d.%06d,\"lon\":%d.%06d,\"ts\":\"%s\"}", (int)(lat_e6 / 1000000),
+             (int)abs(lat_e6 % 1000000), (int)(lon_e6 / 1000000), (int)abs(lon_e6 % 1000000), ts);
+
+    if (mosquitto_publish(s_mosq, NULL, topic, (int)strlen(payload), payload, 1, false) != MOSQ_ERR_SUCCESS)
+    {
+        return MQTT_ERR_PUBLISH;
+    }
+
+    return MQTT_OK;
+}
+
+mqtt_result_t mqtt_handler_publish_delivered(const char* stop_name)
+{
+    if (!s_mosq)
+    {
+        return MQTT_ERR_PUBLISH;
+    }
+
+    char payload[PAYLOAD_BUF_SIZE];
+    char topic[TOPIC_BUF_SIZE];
+
+    make_topic(topic, sizeof(topic), "delivered");
+    snprintf(payload, sizeof(payload), "{\"stop\":\"%s\",\"status\":\"done\"}", stop_name);
+
+    if (mosquitto_publish(s_mosq, NULL, topic, (int)strlen(payload), payload, 1, false) != MOSQ_ERR_SUCCESS)
+    {
+        return MQTT_ERR_PUBLISH;
+    }
+
+    return MQTT_OK;
+}
+
+void mqtt_handler_task(void* p1, void* p2, void* p3)
+{
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+    LOG_INF("[SIM] MQTT task running via mosquitto loop thread");
+}
+
+#else
+
+/* ---------------------------------------------------------------------------
+ * MQTT stubs when libmosquitto is not available.
+ * ------------------------------------------------------------------------- */
+
+mqtt_result_t mqtt_handler_init(const char* broker_addr, uint16_t broker_port, const char* employee_id)
+{
+    strncpy(s_employee_id, employee_id, MAX_EMPLOYEE_ID - 1);
+    s_employee_id[MAX_EMPLOYEE_ID - 1] = '\0';
+    LOG_INF("[SIM-STUB] MQTT init: broker=%s:%d employee=%s", broker_addr, broker_port, employee_id);
+    return MQTT_OK;
+}
+
+mqtt_result_t mqtt_handler_subscribe_routes(void)
+{
+    LOG_INF("[SIM-STUB] MQTT subscribe to routes/%s", s_employee_id);
+    return MQTT_OK;
+}
+
+mqtt_result_t mqtt_handler_publish_tracking(int32_t lat_e6, int32_t lon_e6, bool fix_valid)
+{
+    ARG_UNUSED(lat_e6);
+    ARG_UNUSED(lon_e6);
+    ARG_UNUSED(fix_valid);
+    return MQTT_OK;
+}
+
+mqtt_result_t mqtt_handler_publish_sos(int32_t lat_e6, int32_t lon_e6)
+{
+    ARG_UNUSED(lat_e6);
+    ARG_UNUSED(lon_e6);
+    return MQTT_OK;
+}
+
+mqtt_result_t mqtt_handler_publish_delivered(const char* stop_name)
+{
+    ARG_UNUSED(stop_name);
+    return MQTT_OK;
+}
+
+void mqtt_handler_task(void* p1, void* p2, void* p3)
+{
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+    LOG_INF("[SIM-STUB] MQTT handler task (no-op)");
+}
+
+#endif
+
+#endif /* COURIER_SIMULATION */

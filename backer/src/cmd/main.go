@@ -17,6 +17,7 @@ import (
 	"backer/internal/middleware"
 	"backer/internal/mq"
 	"backer/internal/registry"
+	"backer/internal/worker"
 
 	"github.com/gorilla/mux"
 )
@@ -31,6 +32,9 @@ func main() {
 	eurekaURL := getEnv("EUREKA_URL", "http://localhost:8761/eureka")
 	predictorURL := getEnv("PREDICTOR_URL", "http://localhost:8082")
 	predictorTimeout := getEnvInt("PREDICTOR_TIMEOUT_MS", 500)
+	autoDispatchEnabled := getEnvBool("AUTO_DISPATCH_ENABLED", false)
+	autoDispatchEmployeeID := getEnv("AUTO_DISPATCH_EMPLOYEE_ID", "E001")
+	autoDispatchDelayMs := getEnvInt("AUTO_DISPATCH_DELAY_MS", 30000)
 
 	if jwtSecret == "" {
 		log.Fatal("[FATAL] JWT_SECRET env var is required")
@@ -41,6 +45,32 @@ func main() {
 	mqProducer := mq.NewProducer(rabbitURL)
 	defer mqProducer.Close()
 	routePublisher := mq.NewRoutePublisher(mqProducer)
+
+	// Optional event-driven auto-dispatch worker
+	var autoDispatcher *worker.AutoDispatcher
+	if autoDispatchEnabled {
+		ad, err := worker.StartAutoDispatcher(
+			rabbitURL,
+			cppClient,
+			routePublisher,
+			autoDispatchEmployeeID,
+			time.Duration(autoDispatchDelayMs)*time.Millisecond,
+		)
+		if err != nil {
+			log.Printf("[WARN] AutoDispatcher disabled: failed to start: %v", err)
+		} else {
+			autoDispatcher = ad
+			defer autoDispatcher.Stop()
+		}
+	}
+
+	// Keeps in-memory employee routes in sync with delivered.* events.
+	deliverySyncWorker, err := worker.StartDeliverySyncWorker(rabbitURL, routePublisher, cppClient)
+	if err != nil {
+		log.Printf("[WARN] DeliverySync disabled: failed to start: %v", err)
+	} else if deliverySyncWorker != nil {
+		defer deliverySyncWorker.Stop()
+	}
 
 	// Métricas
 	metrics.Init()
@@ -126,4 +156,16 @@ func getEnvInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }

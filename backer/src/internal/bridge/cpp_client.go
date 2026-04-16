@@ -51,6 +51,14 @@ type CancelMsg struct {
 	OrderID string `json:"order_id"`
 }
 
+type DeliveryUpdateMsg struct {
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	HubID     string `json:"hub_id"`
+	OrderID   string `json:"order_id"`
+	Status    string `json:"status"`
+}
+
 type CppClient struct {
 	addr string
 	conn net.Conn

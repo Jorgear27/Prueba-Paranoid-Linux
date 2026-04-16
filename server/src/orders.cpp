@@ -125,9 +125,6 @@ void OrderManager::processApprovedOrders()
                 // Call supplyRequest to fulfill the order
                 std::string supplyResponse = supplyRequest(orderId, itemsNeeded);
 
-                // Update the order status to "Requested"
-                updateOrderStatus(orderId, "Requested");
-
                 logger.log("OrderManager", "[INFO] Order " + orderId + " processed and supply request sent.");
             }
         }
@@ -145,33 +142,24 @@ std::string OrderManager::supplyRequest(const std::string orderId, const std::ve
 {
     try
     {
-        // Create the supply request JSON
+        // Create a base supply request JSON that will also be returned as a summary.
         nlohmann::json supplyRequest;
         supplyRequest["type"] = "supply_request";
 
         // Generate a real UTC timestamp.
+        std::string timestamp;
         {
             const std::time_t now = std::time(nullptr);
             std::tm utc{};
             gmtime_r(&now, &utc);
             std::ostringstream oss;
             oss << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
-            supplyRequest["timestamp"] = oss.str();
+            timestamp = oss.str();
+            supplyRequest["timestamp"] = timestamp;
         }
 
         supplyRequest["order_id"] = orderId;
-
-        // Construct the items_needed array
-        nlohmann::json itemsArray = nlohmann::json::array();
-        for (const auto& item : itemsNeeded)
-        {
-            int itemType = item.first;
-            int quantityNeeded = item.second;
-
-            // Add each item as a JSON object
-            itemsArray.push_back({{"item_type", itemType}, {"quantity", quantityNeeded}});
-        }
-        supplyRequest["items_needed"] = itemsArray;
+        supplyRequest["items_needed"] = nlohmann::json::array();
 
         for (const auto& item : itemsNeeded)
         {
@@ -182,7 +170,19 @@ std::string OrderManager::supplyRequest(const std::string orderId, const std::ve
             std::string warehouseId = inventoryManager.findWarehouseForItem(itemType, quantityNeeded);
             if (!warehouseId.empty())
             {
-                if (sender.sendMessageToClient(warehouseId, supplyRequest.dump()) != -1)
+                nlohmann::json itemPayload = {
+                    {"item_type", itemType},
+                    {"quantity", quantityNeeded},
+                    {"fulfilled_by", warehouseId},
+                };
+
+                nlohmann::json perWarehouseRequest;
+                perWarehouseRequest["type"] = "supply_request";
+                perWarehouseRequest["timestamp"] = timestamp;
+                perWarehouseRequest["order_id"] = orderId;
+                perWarehouseRequest["items_needed"] = nlohmann::json::array({itemPayload});
+
+                if (sender.sendMessageToClient(warehouseId, perWarehouseRequest.dump()) != -1)
                 {
                     printf("[INFO] Supply request sent to warehouse: %s\n", warehouseId.c_str());
                     // Log the operation
@@ -191,15 +191,13 @@ std::string OrderManager::supplyRequest(const std::string orderId, const std::ve
                                                    " from warehouse: " + warehouseId);
                     std::cout << "[Order] Fulfilled request for item_type: " << itemType
                               << ", quantity: " << quantityNeeded << " from warehouse: " << warehouseId << "\n";
-                    // Add the fulfilled item to the supply request JSON
-                    supplyRequest["items_needed"].push_back(
-                        {{"item_type", itemType}, {"quantity", quantityNeeded}, {"fulfilled_by", warehouseId}});
-                    //}
                 }
                 else
                 {
                     logger.log("OrderManager", "[ERROR] Failed to send supply request to warehouse: " + warehouseId);
                 }
+
+                supplyRequest["items_needed"].push_back(itemPayload);
             }
             else
             {
@@ -231,6 +229,23 @@ void OrderManager::handleOrderDispatch(const std::string& jsonData)
         std::string status = message.at("status"); // shipped or canceled
         auto itemsShipped = message.at("items_shipped");
 
+        nlohmann::json existingOrder = getOrderDetails(orderId);
+        std::string currentStatus = existingOrder.value("status", "");
+
+        // Prevent illegal transitions such as Canceled -> Shipped.
+        if (currentStatus == "Canceled" || currentStatus == "Delivered")
+        {
+            logger.log("OrderManager",
+                       "[WARN] Ignoring dispatch for order " + orderId + " with terminal status: " + currentStatus);
+            return;
+        }
+
+        if (currentStatus == "Shipped" && status == "Shipped")
+        {
+            // Idempotent duplicate dispatch from warehouse; nothing to do.
+            return;
+        }
+
         // JSON object to send to the hub for notification
         nlohmann::json orderDistribution;
         orderDistribution["type"] = "order_for_distribution";
@@ -248,7 +263,7 @@ void OrderManager::handleOrderDispatch(const std::string& jsonData)
             orderDistribution["timestamp"] = oss.str();
         }
 
-        nlohmann::json orderDetails = getOrderDetails(orderId);
+        nlohmann::json orderDetails = existingOrder;
         std::string hubId = orderDetails.at("user_id");
 
         // Notify the hub about the order dispatch Sender sender;

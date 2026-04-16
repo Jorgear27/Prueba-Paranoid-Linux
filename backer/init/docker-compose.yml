@@ -63,6 +63,9 @@ services:
       EUREKA_URL: "http://eureka:8761/eureka"
       PREDICTOR_URL: "http://predictor:8082"
       PREDICTOR_TIMEOUT_MS: "500"
+      AUTO_DISPATCH_ENABLED: "true"
+      AUTO_DISPATCH_EMPLOYEE_ID: "E001"
+      AUTO_DISPATCH_DELAY_MS: "30000"
     depends_on:
       rabbitmq:
         condition: service_healthy

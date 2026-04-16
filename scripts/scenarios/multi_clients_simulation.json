@@ -3,7 +3,7 @@
   "port": 8080,
   "map_path": "scripts/maps/graph_routing_map_7w_7h.json",
   "connect_delay_ms": 100,
-  "hold_open_seconds": 3,
+  "hold_open_seconds": 100,
   "send_disconnect_on_exit": true,
   "exercise_core_flows": true,
   "http_checks": {

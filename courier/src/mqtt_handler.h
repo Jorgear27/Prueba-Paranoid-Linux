@@ -17,7 +17,10 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+
+#ifndef COURIER_SIMULATION
 #include <zephyr/net/mqtt.h>
+#endif
 
 /** Result codes for MQTT operations. */
 typedef enum

@@ -361,9 +361,12 @@ std::string Database::findWarehouseForItem(int itemType, int quantityNeeded)
         std::string query =
             "SELECT i.user_id FROM inventory i "
             "WHERE i.user_id IN (SELECT u.user_id FROM users u WHERE u.user_id LIKE 'W%' AND u.is_online = TRUE) "
-            "AND i.item_type = $1 AND i.stock_level >= $2 LIMIT 1;";
+            "AND i.item_type = $1 AND i.stock_level >= $2 "
+            "ORDER BY RANDOM() LIMIT 1;";
 
-        const char* paramValues[2] = {std::to_string(itemType).c_str(), std::to_string(quantityNeeded).c_str()};
+        const std::string itemTypeStr = std::to_string(itemType);
+        const std::string quantityNeededStr = std::to_string(quantityNeeded);
+        const char* paramValues[2] = {itemTypeStr.c_str(), quantityNeededStr.c_str()};
         PGresult* res = PQexecParams(conn, query.c_str(), 2, nullptr, paramValues, nullptr, nullptr, 0);
 
         if (PQresultStatus(res) != PGRES_TUPLES_OK)

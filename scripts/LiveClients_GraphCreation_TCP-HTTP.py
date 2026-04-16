@@ -100,9 +100,9 @@ def warehouse_inventory_payload(node_id: str) -> dict[str, Any]:
         "timestamp": utc_now_iso(),
         "user_id": node_id,
         "inventory": [
-            {"item_type": 1, "stock_level": 80, "threshold": 20},
-            {"item_type": 2, "stock_level": 70, "threshold": 20},
-            {"item_type": 3, "stock_level": 60, "threshold": 20},
+            {"item_type": 1, "stock_level": 100, "threshold": 20},
+            {"item_type": 2, "stock_level": 100, "threshold": 20},
+            {"item_type": 3, "stock_level": 100, "threshold": 20},
         ],
     }
 
@@ -245,7 +245,6 @@ def main() -> int:
     host = args.host or scenario.get("host", "127.0.0.1")
     port = int(args.port or scenario.get("port", 8080))
     connect_delay_s = float(scenario.get("connect_delay_ms", 100)) / 1000.0
-    hold_open_s = float(scenario.get("hold_open_seconds", 3))
 
     exercise_core = (
         bool(scenario.get("exercise_core_flows", True)) and not args.no_core_flows
@@ -298,6 +297,7 @@ def main() -> int:
             ),
             None,
         )
+        """
         if first_wh:
             response = send_json(sockets[first_wh], restock_notice_payload(first_wh))
             print(f"[FLOW] restock_notice from {first_wh}")
@@ -322,9 +322,15 @@ def main() -> int:
             print(f"[FLOW] order_status_query from {first_hub}, order_id={order_id}")
             if response:
                 print(f"       response: {response}")
-
-    print(f"\nHolding sockets open for {hold_open_s:.1f}s...")
-    time.sleep(hold_open_s)
+        """
+    interrupted = False
+    print("\nSockets are open. Press Ctrl+C to stop.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\nInterrupted by user. Shutting down...")
 
     if send_disconnect:
         print("\n=== Graceful disconnect ===")
@@ -347,12 +353,8 @@ def main() -> int:
         run_http_checks(scenario.get("http_checks", {}), load_json(map_path))
 
     print("\nSimulation finished.")
-    return 0
+    return 130 if interrupted else 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.")
-        raise SystemExit(130)
+    raise SystemExit(main())
