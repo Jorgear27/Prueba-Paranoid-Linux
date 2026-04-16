@@ -7,6 +7,7 @@ runs:
 
     - name: Set up Python environment
       shell: bash
+      working-directory: ${{ github.workspace }}
       run: |
         python3 -m venv venv
         source venv/bin/activate
@@ -14,6 +15,7 @@ runs:
 
     - name: Install dependencies with Conan
       shell: bash
+      working-directory: ${{ github.workspace }}
       run: |
         source venv/bin/activate
         conan profile detect --force
@@ -21,6 +23,7 @@ runs:
 
     - name: Compile
       shell: bash
+      working-directory: ${{ github.workspace }}
       run: |
         echo "Running command: cmake .. -DCMAKE_TOOLCHAIN_FILE=./build/Debug/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DRUN_COVERAGE=TRUE && make -j$(nproc)"
         mkdir -p build
@@ -30,6 +33,7 @@ runs:
 
     - name: Build Go Backer Server
       shell: bash
+      working-directory: ${{ github.workspace }}
       run: |
         if [ ! -f backer/src/go.mod ]; then
           echo "Error: backer/src/go.mod not found"
@@ -38,12 +42,14 @@ runs:
           exit 1
         fi
 
-        go -C backer/src mod download
-        CGO_ENABLED=0 go -C backer/src build -trimpath -ldflags="-s -w" -o ../backer ./cmd/
-        echo "Backer binary built successfully ($(du -h backer/backer | cut -f1))"
+        cd backer/src
+        go mod download
+        CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../../backer/backer ./cmd/
+        echo "Backer binary built successfully ($(du -h ../../backer/backer | cut -f1))"
 
     - name: Build Courier simulator
       shell: bash
+      working-directory: ${{ github.workspace }}
       run: |
         cd courier/sim
         cmake -B build -DCMAKE_BUILD_TYPE=Debug \

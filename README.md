@@ -446,20 +446,6 @@ Default scenario file:
 
 - scripts/scenarios/order_lifecycle_simulation.json
 
-Useful options:
-
-```bash
-python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --scenario scripts/scenarios/order_lifecycle_simulation.json
-```
-
-```bash
-python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --no-http-checks
-```
-
-```bash
-python3 scripts/LiveClients_LifeCycle_GraphRefresh_TCP-HTTP.py --no-disconnect
-```
-
 ## 3. Run Backer Go tests
 
 If you have Go 1.26.x or newer installed locally:
@@ -494,6 +480,8 @@ cd courier/src
 gcc -I. -Iunity/src test_mqtt_handler.c courier_state.c unity/src/unity.c -lpthread -o test_mqtt_handler
 ./test_mqtt_handler
 ```
+
+---
 
 # Visual utilites
 

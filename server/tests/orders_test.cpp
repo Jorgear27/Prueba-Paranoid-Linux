@@ -215,7 +215,11 @@ TEST_F(OrderManagerTest, ProcessApprovedOrders)
 
     EXPECT_CALL(mockDatabase, getApprovedOrders()).WillOnce(Return(approvedOrders));
     EXPECT_CALL(mockDatabase, getOrderDetails("order123")).WillOnce(Return(orderDetails));
-    EXPECT_CALL(mockDatabase, updateOrderStatus("order123", "Requested")).WillOnce(Return(true));
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(1, 10)).WillOnce(Return("warehouse1"));
+    EXPECT_CALL(mockInventoryManager, findWarehouseForItem(2, 5)).WillOnce(Return("warehouse2"));
+    EXPECT_CALL(mockSender, sendMessageToClient("warehouse1", _)).WillOnce(Return(0));
+    EXPECT_CALL(mockSender, sendMessageToClient("warehouse2", _)).WillOnce(Return(0));
+    EXPECT_CALL(mockLogger, log(_, _)).Times(::testing::AtLeast(3));
 
     std::thread t([&]() { orderManager.processApprovedOrders(); });
     std::this_thread::sleep_for(std::chrono::seconds(1));
