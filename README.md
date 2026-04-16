@@ -2,6 +2,14 @@
 
 ---
 
+## Complete Implementation Flow Reference
+
+For the complete end-to-end flow mapped to concrete source files, methods, producers, consumers, and message paths, see:
+
+- [docs/COMPLETE_SYSTEM_FLOW_IMPLEMENTATION.md](docs/COMPLETE_SYSTEM_FLOW_IMPLEMENTATION.md)
+
+This document is the canonical reference for runtime behavior and integration troubleshooting.
+
 # Building the system
 
 ## 1. Prerequisites
@@ -236,17 +244,7 @@ SHIPMENT_ID=$(curl -s -X POST http://localhost/shipments \
 echo "$SHIPMENT_ID"
 ```
 
-With auto-dispatch enabled, Backer will dispatch this shipment automatically after `AUTO_DISPATCH_DELAY_MS`
-and publish route stops to the courier topic.
-
-Backer now keeps a per-employee in-memory route queue: each dispatched shipment appends
-its stops to the employee route (instead of replacing previous stops) and publishes
-the full updated route to `routes/{employee_id}`.
-
-Backer also consumes `delivered/{employee_id}` events and removes completed stops from
-that employee route queue, so pending routes do not grow indefinitely.
-
-The C++ core still returns shipment stops from its normal warehouse selection flow; Backer is responsible for accumulating those stops in the employee route queue before publishing to `routes/{employee_id}`.
+With auto-dispatch enabled, Backer will dispatch this shipment automatically after `AUTO_DISPATCH_DELAY_MS` and publish route stops to the courier topic.
 
 - **GET /status/{id}**
 

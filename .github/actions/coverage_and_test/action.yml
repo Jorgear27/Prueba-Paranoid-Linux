@@ -12,6 +12,7 @@ runs:
         ERROR_FILE_FLAG=$(pwd)/tests_errors.txt
 
         CTEST_ERROR_FILE_FLAG=$(pwd)/ctest_errors.txt
+        echo "Running C and C++ tests with CTest..."
         # run tests built with cmake
         # --output-on-faileure: prints everythin outputted by the tests if it fails
         # -VV verbose output
@@ -23,13 +24,13 @@ runs:
           echo "Error: Unit Tests Failed"
           exit 1
         else
-          echo "All C++ tests were passed!"
+          echo "All C and C++ tests were passed!"
         fi
 
         # Run Go Backer Server tests
         echo "Running Go tests..."
         cd backer/src
-        GO_TEST_OUTPUT=$(go test ./tests/... -v 2>&1) || {
+        GO_TEST_OUTPUT=$(go test ./... -v 2>&1) || {
           echo "Error: Go tests failed"
           echo "$GO_TEST_OUTPUT" >> $ERROR_FILE_FLAG
           exit 1
@@ -37,29 +38,6 @@ runs:
         echo "$GO_TEST_OUTPUT" >> $ERROR_FILE_FLAG
         echo "All Go tests passed!"
         cd $PROJECT_PATH
-
-        # Run Courier host unit tests (Unity)
-        echo "Running Courier Unity tests..."
-        if [ ! -f courier/src/unity/src/unity.c ] || [ ! -f courier/src/unity/src/unity.h ]; then
-          echo "Error: Unity sources not found at courier/src/unity/src." >> $ERROR_FILE_FLAG
-          echo "Add Unity as submodule or vendored directory before running CI." >> $ERROR_FILE_FLAG
-          exit 1
-        fi
-
-        gcc -Icourier/src -Icourier/src/unity/src \
-          courier/src/test_mqtt_handler.c \
-          courier/src/courier_state.c \
-          courier/src/unity/src/unity.c \
-          -lpthread -o courier/src/test_mqtt_handler
-
-        COURIER_TEST_OUTPUT=$(./courier/src/test_mqtt_handler 2>&1) || {
-          echo "Error: Courier Unity tests failed"
-          echo "$COURIER_TEST_OUTPUT" >> $ERROR_FILE_FLAG
-          exit 1
-        }
-
-        echo "$COURIER_TEST_OUTPUT" >> $ERROR_FILE_FLAG
-        echo "All Courier tests passed!"
 
         # run coverage of those tests and oputput to file
         gcovr -r $PROJECT_PATH . >> $ERROR_FILE_FLAG
