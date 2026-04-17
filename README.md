@@ -33,7 +33,7 @@ The QA workflow installs these packages:
 - postgresql
 - postgresql-client
 - qtbase5-dev
-- pkg-config 
+- pkg-config
 - libomp-dev
 
 ## 2. Services required

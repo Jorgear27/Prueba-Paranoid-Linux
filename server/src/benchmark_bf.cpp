@@ -24,6 +24,7 @@
 #include <omp.h>
 #endif
 
+/** @brief Alias local para construir/serializar JSON del benchmark. */
 using json = nlohmann::json;
 
 /**
@@ -94,15 +95,21 @@ static void printHeader()
 }
 
 // Corre múltiples veces y retorna estadísticas
+/**
+ * @brief Agrega métricas descriptivas de múltiples corridas.
+ */
 struct RunStats
 {
-    double mean_ms = 0.0;
-    double min_ms = 0.0;
-    double max_ms = 0.0;
-    double stddev = 0.0;
-    BellmanFord::ProfilingStats last; // stats de la última corrida
+    double mean_ms = 0.0;             ///< Tiempo medio en milisegundos.
+    double min_ms = 0.0;              ///< Tiempo mínimo observado.
+    double max_ms = 0.0;              ///< Tiempo máximo observado.
+    double stddev = 0.0;              ///< Desviación estándar de los tiempos.
+    BellmanFord::ProfilingStats last; ///< Estadísticas detalladas de la última corrida.
 };
 
+/**
+ * @brief Ejecuta Bellman-Ford serial varias veces y resume métricas de tiempo.
+ */
 RunStats runSerial(BellmanFord& bf, const Graph& graph, const std::string& source, int runs)
 {
     std::vector<double> times;
@@ -122,6 +129,9 @@ RunStats runSerial(BellmanFord& bf, const Graph& graph, const std::string& sourc
     return rs;
 }
 
+/**
+ * @brief Ejecuta Bellman-Ford paralelo varias veces y resume métricas de tiempo.
+ */
 RunStats runParallel(BellmanFord& bf, const Graph& graph, const std::string& source, int runs, int threads)
 {
     std::vector<double> times;
@@ -141,7 +151,9 @@ RunStats runParallel(BellmanFord& bf, const Graph& graph, const std::string& sou
     return rs;
 }
 
-// main
+/**
+ * @brief Entry point del benchmark de Bellman-Ford serial vs paralelo.
+ */
 int main(int argc, char* argv[])
 {
     // Silenciar el logger para no contaminar la salida del benchmark

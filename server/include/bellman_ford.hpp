@@ -20,28 +20,35 @@
 #include <unordered_map>
 #include <vector>
 
+/** @brief Valor sentinela para nodos no alcanzables desde la fuente. */
 constexpr double UNREACHABLE = std::numeric_limits<double>::infinity();
 
+/**
+ * @brief Implementa Bellman-Ford en modo serial y paralelo (OpenMP).
+ */
 class BellmanFord
 {
   public:
+    /**
+     * @brief Resultado de una ejecución de Bellman-Ford.
+     */
     struct Result
     {
-        bool has_negative_cycle = false;
-        std::unordered_map<std::string, double> distances;
-        std::unordered_map<std::string, std::string> predecessors;
+        bool has_negative_cycle = false;                           ///< Indica si se detectó ciclo negativo alcanzable.
+        std::unordered_map<std::string, double> distances;         ///< Distancia mínima por nodo desde la fuente.
+        std::unordered_map<std::string, std::string> predecessors; ///< Predecesor por nodo para reconstruir caminos.
     };
 
     /** Estadísticas de una ejecución para análisis de Amdahl. */
     struct ProfilingStats
     {
-        double total_time_ms = 0.0;
+        double total_time_ms = 0.0;    ///< Tiempo total de la ejecución.
         double serial_time_ms = 0.0;   ///< Init + neg-cycle check
         double parallel_time_ms = 0.0; ///< Inner loop de relajación
-        int passes_executed = 0;
-        int num_threads = 1;
-        std::size_t V = 0;
-        std::size_t E = 0;
+        int passes_executed = 0;       ///< Cantidad de pasadas de relajación realizadas.
+        int num_threads = 1;           ///< Hilos usados en la sección paralela.
+        std::size_t V = 0;             ///< Número de vértices del grafo.
+        std::size_t E = 0;             ///< Número de aristas del grafo.
     };
 
     /** Modo serial puro — sin ninguna directiva OpenMP. Línea base de profiling. */

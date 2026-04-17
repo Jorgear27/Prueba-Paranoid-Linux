@@ -14,6 +14,7 @@
 #include <omp.h>
 #endif
 
+/** @brief Alias local para construir respuestas JSON del endpoint de profiling. */
 using json = nlohmann::json;
 
 /**
