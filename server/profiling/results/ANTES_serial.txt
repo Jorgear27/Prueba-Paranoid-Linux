@@ -1,0 +1,49 @@
+--------------------------------------------------------------------------------
+  BENCHMARK BELLMAN-FORD: SERIAL vs PARALELO (OpenMP)
+--------------------------------------------------------------------------------
+  OpenMP disponible. Max threads del sistema: 1
+--------------------------------------------------------------------------------
+  Nodos: 400  |  Aristas: 159600  |  Corridas por config: 10
+--------------------------------------------------------------------------------
+
+[1/3] Midiendo SERIAL (warm-up incluido)...
+  Tiempo medio   : 61.638 ms
+  Min / Max      : 58.828 / 65.940 ms
+  Desviación std : 2.250 ms
+  Pasadas (last) : 8
+  Tiempo serial (init+neg-cycle): 14.494 ms
+  Tiempo paralelo (inner loop)  : 46.156 ms
+
+  ── Fracciones de tiempo (Ley de Amdahl) ──
+  Fracción serial   S = 23.5154%
+  Fracción paralela P = 76.4846%
+
+[2/3] Midiendo PARALELO con 1 configuraciones de threads...
+
+   Threads    Tiempo(ms)     Speedup    Eficiencia      Speedup Amdahl
+----------------------------------------------------------------------
+         1        22.815       2.702      270.165%             1.000
+----------------------------------------------------------------------
+
+[3/3] Análisis Ley de Amdahl
+  Fracción serial medida : 23.5154%
+  Speedup máximo teórico : 4.25x  (con infinitos threads)
+  Interpretación: aunque se agreguen N threads, el speedup
+  nunca superará 4.3x
+  por la fracción serial (init + detección ciclo negativo).
+
+[4/4] Escalabilidad por tamaño de grafo (serial vs paralelo max threads)
+      Demuestra que el speedup crece con el tamaño del problema
+
+   Nodos     Aristas    Serial(ms)    Paralelo(ms)     Speedup   Pasadas
+------------------------------------------------------------------------
+      50        2450          0.99            0.28        3.57        19
+     100        9900          4.56            1.18        3.87        19
+     200       39800         19.15            5.26        3.64        18
+     400      159600         64.10           22.74        2.82        19
+     600      359400        210.25           48.41        4.34        22
+     800      639200        360.73          108.31        3.33        18
+------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+  Benchmark completado.
+--------------------------------------------------------------------------------

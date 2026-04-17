@@ -224,6 +224,11 @@ class GraphRouter
 
     /// Serialises access to MongoRepository when using a shared mongocxx client.
     mutable std::mutex mongoMutex_;
+    // Handler para GET /profiling-bf
+    std::string handleProfilingBf(const std::string& query, int& statusCode);
 };
+
+// Forward declaration del helper externo (profiling_endpoint.cpp)
+std::string handleProfilingBf(const Graph& graph, const std::string& sourceId, int threads, int& statusCode);
 
 #endif // GRAPH_ROUTER_HPP

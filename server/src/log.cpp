@@ -25,6 +25,7 @@ Logger& Logger::getInstance()
 
 void Logger::log(const std::string& component, const std::string& message)
 {
+    if (!enabled_) return; // silenciado (modo benchmark)
     std::lock_guard<std::mutex> lock(logMutex); // Ensure thread-safe logging
 
     // Get the current time

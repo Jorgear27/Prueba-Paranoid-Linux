@@ -50,6 +50,11 @@ class Logger
     Logger();
 
     /**
+     * @brief Enable or disable logging output (útil para benchmarks).
+     */
+    void setEnabled(bool enabled) { enabled_ = enabled; }
+
+    /**
      * @brief Destructor that closes the log file.
      */
     virtual ~Logger();
@@ -61,6 +66,7 @@ class Logger
 
     std::ofstream logFile; //!< Log file stream
     std::mutex logMutex;   //!< Mutex for thread-safe logging
+    bool enabled_ = true;  //!< Si false, log() no hace nada
 };
 
 #endif

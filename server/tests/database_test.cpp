@@ -289,7 +289,8 @@ TEST_F(DatabaseTest, UpdateUserOnlineStatusFailure)
 TEST_F(DatabaseTest, FindWarehouseForItem)
 {
     std::string warehouseId = "Wtest";
-    int itemType = 1;
+    // Use a high, test-specific itemType to avoid collisions with residual DB data.
+    int itemType = 987654321;
     int stockLevel = 100;
     int stockThreshold = 10;
 

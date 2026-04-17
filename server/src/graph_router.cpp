@@ -1,4 +1,5 @@
 #include "graph_router.hpp"
+#include "bellman_ford.hpp"
 
 #include "database.hpp"
 #include <chrono>
@@ -65,6 +66,13 @@ std::string GraphRouter::route(const std::string& method, const std::string& pat
     if (method == "GET" && path == "/results/")
     {
         return handleGetResults("", 20, statusCode);
+    }
+
+    // GET /profiling-bf?source_id=M0&threads=4
+    if (method == "GET" && path.rfind("/profiling-bf", 0) == 0)
+    {
+        // Extraer query string (viene en `body` parseado por HttpServer, o del path)
+        return handleProfilingBf(body, statusCode);
     }
 
     // Unknown route.
@@ -455,4 +463,57 @@ std::string GraphRouter::generateResultId(const std::string& prefix)
 std::string GraphRouter::errorResponse(const std::string& message)
 {
     return json{{"status", "error"}, {"message", message}}.dump();
+}
+
+// ---------------------------------------------------------------------------
+// Private: handleProfilingBf  — GET /profiling-bf
+// ---------------------------------------------------------------------------
+// Recibe en `query` el body que HttpServer nos pasa, o los params de la URL.
+// El servidor lo llama con body="" y los params llegaron por query string.
+// Usamos el body para pasar source_id y threads desde el caller.
+//
+// El cliente llama:  GET /profiling-bf
+//                    body: {"source_id":"M0","threads":4}
+// ---------------------------------------------------------------------------
+
+std::string GraphRouter::handleProfilingBf(const std::string& query, int& statusCode)
+{
+    const std::shared_ptr<const Graph> g = snapshotGraph();
+    if (!g || g->empty())
+    {
+        statusCode = 400;
+        return errorResponse("No map loaded. POST /map first.");
+    }
+
+    // Parsear params opcionales del body
+    std::string sourceId;
+    int threads = 0;
+
+    if (!query.empty())
+    {
+        try
+        {
+            const nlohmann::json params = nlohmann::json::parse(query);
+            if (params.contains("source_id"))
+                sourceId = params.at("source_id").get<std::string>();
+            if (params.contains("threads"))
+                threads = params.at("threads").get<int>();
+        }
+        catch (...) { /* params opcionales, ignorar error */ }
+    }
+
+    // Si no se proporcionó source_id, usar el primer nodo Market disponible.
+    if (sourceId.empty())
+    {
+        const auto markets = g->getActiveNodes(NodeType::Market);
+        if (markets.empty())
+        {
+            statusCode = 400;
+            return errorResponse("No active Market nodes in the current graph.");
+        }
+        sourceId = markets.front().id;
+    }
+
+    // Delegar al helper de profiling_endpoint.cpp
+    return ::handleProfilingBf(*g, sourceId, threads, statusCode);
 }

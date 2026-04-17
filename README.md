@@ -2,14 +2,6 @@
 
 ---
 
-## Complete Implementation Flow Reference
-
-For the complete end-to-end flow mapped to concrete source files, methods, producers, consumers, and message paths, see:
-
-- [docs/COMPLETE_SYSTEM_FLOW_IMPLEMENTATION.md](docs/COMPLETE_SYSTEM_FLOW_IMPLEMENTATION.md)
-
-This document is the canonical reference for runtime behavior and integration troubleshooting.
-
 # Building the system
 
 ## 1. Prerequisites
@@ -461,23 +453,6 @@ cd backer/src
 docker run --rm -v "$PWD":/app -w /app golang:1.26-alpine sh -lc "go mod download && go test ./tests/... -v
 ```
 
-## 4. Run Courier tests and simulator (Unity)
-
-The Unity test framework is vendored as a submodule under [courier/src/unity](courier/src/unity).
-
-If this is a fresh clone, initialize the submodule first:
-
-```bash
-git submodule update --init --recursive
-```
-
-Run the host test binary:
-
-```bash
-cd courier/src
-gcc -I. -Iunity/src test_mqtt_handler.c courier_state.c unity/src/unity.c -lpthread -o test_mqtt_handler
-./test_mqtt_handler
-```
 
 ---
 

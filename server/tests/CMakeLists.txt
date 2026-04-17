@@ -19,6 +19,7 @@ add_executable(orders_server_test
   ${CMAKE_SOURCE_DIR}/server/src/bellman_ford.cpp
   ${CMAKE_SOURCE_DIR}/server/src/ford_fulkerson.cpp
   ${CMAKE_SOURCE_DIR}/server/src/kaufmann_malgrange.cpp
+  ${CMAKE_SOURCE_DIR}/server/src/profiling_endpoint.cpp
 )
 target_link_libraries(orders_server_test PostgreSQL::PostgreSQL gtest::gtest nlohmann_json::nlohmann_json)
 add_test(NAME orders_server_test COMMAND orders_server_test)
@@ -39,6 +40,7 @@ add_executable(request_router_test
   ${CMAKE_SOURCE_DIR}/server/src/bellman_ford.cpp
   ${CMAKE_SOURCE_DIR}/server/src/ford_fulkerson.cpp
   ${CMAKE_SOURCE_DIR}/server/src/kaufmann_malgrange.cpp
+  ${CMAKE_SOURCE_DIR}/server/src/profiling_endpoint.cpp
 )
 target_link_libraries(request_router_test PostgreSQL::PostgreSQL gtest::gtest nlohmann_json::nlohmann_json)
 add_test(NAME request_router_test COMMAND request_router_test)
@@ -64,6 +66,7 @@ add_executable(inventory_server_test
   ${CMAKE_SOURCE_DIR}/server/src/bellman_ford.cpp
   ${CMAKE_SOURCE_DIR}/server/src/ford_fulkerson.cpp
   ${CMAKE_SOURCE_DIR}/server/src/kaufmann_malgrange.cpp
+  ${CMAKE_SOURCE_DIR}/server/src/profiling_endpoint.cpp
 )
 target_link_libraries(inventory_server_test PostgreSQL::PostgreSQL gtest::gtest nlohmann_json::nlohmann_json)
 add_test(NAME inventory_server_test COMMAND inventory_server_test)
@@ -94,6 +97,7 @@ add_executable(server_test
   ${CMAKE_SOURCE_DIR}/server/src/bellman_ford.cpp
   ${CMAKE_SOURCE_DIR}/server/src/ford_fulkerson.cpp
   ${CMAKE_SOURCE_DIR}/server/src/kaufmann_malgrange.cpp
+  ${CMAKE_SOURCE_DIR}/server/src/profiling_endpoint.cpp
 )
 target_compile_definitions(server_test PRIVATE TESTING)
 target_link_libraries(server_test PostgreSQL::PostgreSQL gtest::gtest nlohmann_json::nlohmann_json)
@@ -112,6 +116,7 @@ add_executable(auth_test_server
   ${CMAKE_SOURCE_DIR}/server/src/bellman_ford.cpp
   ${CMAKE_SOURCE_DIR}/server/src/ford_fulkerson.cpp
   ${CMAKE_SOURCE_DIR}/server/src/kaufmann_malgrange.cpp
+  ${CMAKE_SOURCE_DIR}/server/src/profiling_endpoint.cpp
 )
 target_compile_definitions(auth_test_server PRIVATE TESTING)
 target_link_libraries(auth_test_server PostgreSQL::PostgreSQL gtest::gtest nlohmann_json::nlohmann_json)
@@ -167,6 +172,7 @@ add_executable(graph_router_test
   ${CMAKE_SOURCE_DIR}/server/src/ford_fulkerson.cpp
   ${CMAKE_SOURCE_DIR}/server/src/kaufmann_malgrange.cpp
   ${CMAKE_SOURCE_DIR}/server/src/log.cpp
+  ${CMAKE_SOURCE_DIR}/server/src/profiling_endpoint.cpp
 )
 target_link_libraries(graph_router_test PostgreSQL::PostgreSQL gtest::gtest nlohmann_json::nlohmann_json)
 add_test(NAME graph_router_test COMMAND graph_router_test)
@@ -190,3 +196,18 @@ add_executable(database_integration_test
 )
 target_link_libraries(database_integration_test PostgreSQL::PostgreSQL gtest::gtest nlohmann_json::nlohmann_json)
 add_test(NAME database_integration_test COMMAND database_integration_test)
+
+# ─── Bellman-Ford OpenMP tests ────────────────────────────────────────────────
+# Tests de correctitud: verifica que computeSerial y computeParallel
+# producen resultados idénticos (mismo grafo, mismas distancias, mismos predecesores).
+add_executable(bellman_ford_omp_test
+    bellman_ford_omp_test.cpp
+    ${CMAKE_SOURCE_DIR}/server/src/bellman_ford.cpp
+    ${CMAKE_SOURCE_DIR}/server/src/graph.cpp
+    ${CMAKE_SOURCE_DIR}/server/src/log.cpp
+)
+target_link_libraries(bellman_ford_omp_test gtest::gtest nlohmann_json::nlohmann_json)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(bellman_ford_omp_test OpenMP::OpenMP_CXX)
+endif()
+add_test(NAME bellman_ford_omp_test COMMAND bellman_ford_omp_test)
