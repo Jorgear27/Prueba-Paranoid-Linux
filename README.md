@@ -32,6 +32,9 @@ The QA workflow installs these packages:
 - python3
 - postgresql
 - postgresql-client
+- qtbase5-dev
+- pkg-config 
+- libomp-dev
 
 ## 2. Services required
 

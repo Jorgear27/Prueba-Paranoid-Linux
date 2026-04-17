@@ -52,7 +52,10 @@ class Logger
     /**
      * @brief Enable or disable logging output (útil para benchmarks).
      */
-    void setEnabled(bool enabled) { enabled_ = enabled; }
+    void setEnabled(bool enabled)
+    {
+        enabled_ = enabled;
+    }
 
     /**
      * @brief Destructor that closes the log file.

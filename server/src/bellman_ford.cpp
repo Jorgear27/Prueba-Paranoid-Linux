@@ -200,7 +200,7 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph, const std::
     std::vector<int> pred(V, -1);
 
     // ── PARALELO: inicialización de dist[] ────────────────────────────────────
-    // Para grafos grandes chicos es despreciable.
+    // Ganancia es pequeña (O(V), no O(E)), pero es paralelizable igualmente.
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static) num_threads(T) default(none) shared(dist, V)
 #endif
@@ -210,7 +210,9 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph, const std::
     if (srcIdx >= 0)
         dist[srcIdx] = 0.0;
 
-    // ── Outer loop SERIAL + inner loop PARALELO ───────────────────────────────
+    // ── Outer loop SERIAL ────────────────────────────────
+    // El algoritmo depende de que cada pasada termine antes de la siguiente.
+    // Pasada 1 calcula distancias intermedias. Pasada 2 usa esos resultados.
     int passes = 0;
     for (int pass = 0; pass < V - 1; ++pass)
     {
@@ -219,13 +221,9 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph, const std::
 
         // ── INNER LOOP PARALELO: arrays locales por hilo ──────────────────────
         //
-        // Cada thread tiene su propio local_dist[V] y local_pred[V].
-        // Lee dist[] (solo lectura, thread-safe).
-        // Escribe en local_dist[tid][] sin ninguna sincronización.
-        // Al final: reducción O(V) — serial pero baratísima comparado
-        // con 159.600 critical calls de la V2.
-        //
-        //
+        // Cada thread tiene su propio local_dist[V] y local_pred[V]. Lee dist[]
+        // (solo lectura, thread-safe).Al final: reducción O(V) serial. O(V*E) ~ 64M.
+        // Paralelizarlo entre T hilos reduce de 64M a 64M / T, ganancia real.
 
 #ifdef _OPENMP
         std::vector<std::vector<double>> local_dist(T, dist);
@@ -244,7 +242,7 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph, const std::
                     continue;
 
                 const double cand = src + e.cost;
-                if (cand < local_dist[tid][e.to]) // escribe en privado — sin contención
+                if (cand < local_dist[tid][e.to]) // escribe en privado — safe
                 {
                     local_dist[tid][e.to] = cand;
                     local_pred[tid][e.to] = e.from;
@@ -268,7 +266,7 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph, const std::
         }
 
 #else
-        // Fallback serial
+        // Fallback serial si no hay OpenMP
         for (int i = 0; i < IE; ++i)
         {
             const auto& e = iedges[i];
