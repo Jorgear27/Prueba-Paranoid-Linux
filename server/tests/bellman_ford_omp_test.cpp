@@ -13,9 +13,9 @@
 
 #include "bellman_ford.hpp"
 #include "graph.hpp"
+#include <cmath>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
-#include <cmath>
 #include <random>
 
 using json = nlohmann::json;
@@ -24,24 +24,23 @@ using json = nlohmann::json;
 // Helpers para construir grafos de prueba
 // ─────────────────────────────────────────────────────────────────────────────
 
-static json makeMarketNode(const std::string& id,
-                            const std::vector<std::pair<std::string,double>>& conns = {},
-                            bool secure = true, bool active = true)
+static json makeMarketNode(const std::string& id, const std::vector<std::pair<std::string, double>>& conns = {},
+                           bool secure = true, bool active = true)
 {
     json node;
-    node["node_id"]       = id;
-    node["node_type"]     = "market";
+    node["node_id"] = id;
+    node["node_type"] = "market";
     node["node_location"] = {{"latitude", 0.0}, {"longitude", 0.0}};
-    node["is_secure"]     = secure;
-    node["is_active"]     = active;
+    node["is_secure"] = secure;
+    node["is_active"] = active;
 
     json connections = json::array();
     for (const auto& [target, weight] : conns)
     {
         json c;
-        c["target_node_id"]        = target;
-        c["base_weight"]           = weight;
-        c["connection_type"]       = "road";
+        c["target_node_id"] = target;
+        c["base_weight"] = weight;
+        c["connection_type"] = "road";
         c["connection_conditions"] = json::array();
         connections.push_back(c);
     }
@@ -58,7 +57,7 @@ static Graph buildUniformGraph(int N, double weight = 5.0)
     for (int i = 0; i < N; ++i)
     {
         std::string id = "M" + std::to_string(i);
-        std::vector<std::pair<std::string,double>> conns;
+        std::vector<std::pair<std::string, double>> conns;
         for (int j = 0; j < N; ++j)
             if (i != j)
                 conns.push_back({"M" + std::to_string(j), weight});
@@ -80,10 +79,11 @@ static Graph buildRandomGraph(int N, unsigned seed = 42)
     for (int i = 0; i < N; ++i)
     {
         std::string id = "M" + std::to_string(i);
-        std::vector<std::pair<std::string,double>> conns;
+        std::vector<std::pair<std::string, double>> conns;
         for (int j = 0; j < N; ++j)
         {
-            if (i == j) continue;
+            if (i == j)
+                continue;
             conns.push_back({"M" + std::to_string(j), dist(rng)});
         }
         nodes.push_back(makeMarketNode(id, conns));
@@ -105,29 +105,23 @@ class BellmanFordOmpTest : public ::testing::Test
     // Tolerancia para comparar doubles
     static constexpr double EPS = 1e-9;
 
-    void assertResultsEqual(const BellmanFord::Result& serial,
-                             const BellmanFord::Result& parallel)
+    void assertResultsEqual(const BellmanFord::Result& serial, const BellmanFord::Result& parallel)
     {
-        EXPECT_EQ(serial.has_negative_cycle, parallel.has_negative_cycle)
-            << "Discrepancia en has_negative_cycle";
+        EXPECT_EQ(serial.has_negative_cycle, parallel.has_negative_cycle) << "Discrepancia en has_negative_cycle";
 
-        ASSERT_EQ(serial.distances.size(), parallel.distances.size())
-            << "Distinto numero de nodos en distances";
+        ASSERT_EQ(serial.distances.size(), parallel.distances.size()) << "Distinto numero de nodos en distances";
 
         for (const auto& [id, distS] : serial.distances)
         {
-            ASSERT_TRUE(parallel.distances.count(id) > 0)
-                << "Nodo " << id << " presente en serial pero no en parallel";
+            ASSERT_TRUE(parallel.distances.count(id) > 0) << "Nodo " << id << " presente en serial pero no en parallel";
 
             const double distP = parallel.distances.at(id);
 
             if (std::isinf(distS))
-                EXPECT_TRUE(std::isinf(distP))
-                    << "Nodo " << id << ": serial=inf, parallel=" << distP;
+                EXPECT_TRUE(std::isinf(distP)) << "Nodo " << id << ": serial=inf, parallel=" << distP;
             else
                 EXPECT_NEAR(distS, distP, EPS)
-                    << "Distancia distinta para nodo " << id
-                    << ": serial=" << distS << " parallel=" << distP;
+                    << "Distancia distinta para nodo " << id << ": serial=" << distS << " parallel=" << distP;
         }
     }
 };
@@ -152,7 +146,7 @@ TEST_F(BellmanFordOmpTest, SimpleFourNodeGraph_CorrectDistances)
     Graph g;
     g.build(nodes);
 
-    const auto serial   = bf.computeSerial(g, "M0");
+    const auto serial = bf.computeSerial(g, "M0");
     const auto parallel = bf.computeParallel(g, "M0");
 
     // Verificar distancias exactas en el serial
@@ -173,7 +167,7 @@ TEST_F(BellmanFordOmpTest, SimpleFourNodeGraph_CorrectDistances)
 TEST_F(BellmanFordOmpTest, UniformGraph10Nodes_SerialEqualsParallel)
 {
     const Graph g = buildUniformGraph(10, 4.0);
-    const auto serial   = bf.computeSerial(g, "M0");
+    const auto serial = bf.computeSerial(g, "M0");
     const auto parallel = bf.computeParallel(g, "M0");
     assertResultsEqual(serial, parallel);
 }
@@ -185,7 +179,7 @@ TEST_F(BellmanFordOmpTest, UniformGraph10Nodes_SerialEqualsParallel)
 TEST_F(BellmanFordOmpTest, RandomGraph50Nodes_2Threads_SerialEqualsParallel)
 {
     const Graph g = buildRandomGraph(50, 1234);
-    const auto serial   = bf.computeSerial(g, "M0");
+    const auto serial = bf.computeSerial(g, "M0");
     const auto parallel = bf.computeParallel(g, "M0", nullptr, 2);
     assertResultsEqual(serial, parallel);
 }
@@ -197,7 +191,7 @@ TEST_F(BellmanFordOmpTest, RandomGraph50Nodes_2Threads_SerialEqualsParallel)
 TEST_F(BellmanFordOmpTest, RandomGraph50Nodes_4Threads_SerialEqualsParallel)
 {
     const Graph g = buildRandomGraph(50, 9999);
-    const auto serial   = bf.computeSerial(g, "M0");
+    const auto serial = bf.computeSerial(g, "M0");
     const auto parallel = bf.computeParallel(g, "M0", nullptr, 4);
     assertResultsEqual(serial, parallel);
 }
@@ -209,7 +203,7 @@ TEST_F(BellmanFordOmpTest, RandomGraph50Nodes_4Threads_SerialEqualsParallel)
 TEST_F(BellmanFordOmpTest, RandomGraph100Nodes_MaxThreads_SerialEqualsParallel)
 {
     const Graph g = buildRandomGraph(100, 777);
-    const auto serial   = bf.computeSerial(g, "M0");
+    const auto serial = bf.computeSerial(g, "M0");
     // threads=0 → usar OMP_NUM_THREADS del sistema
     const auto parallel = bf.computeParallel(g, "M0", nullptr, 0);
     assertResultsEqual(serial, parallel);
@@ -229,7 +223,7 @@ TEST_F(BellmanFordOmpTest, IsolatedSource_OnlySourceReachable)
     Graph g;
     g.build(nodes);
 
-    const auto serial   = bf.computeSerial(g, "M0");
+    const auto serial = bf.computeSerial(g, "M0");
     const auto parallel = bf.computeParallel(g, "M0");
 
     EXPECT_DOUBLE_EQ(serial.distances.at("M0"), 0.0);
@@ -250,24 +244,24 @@ TEST_F(BellmanFordOmpTest, GraphWithConditions_SerialEqualsParallel)
 
     json conn;
     conn["target_node_id"] = "M1";
-    conn["base_weight"]    = 10.0;
+    conn["base_weight"] = 10.0;
     conn["connection_type"] = "road";
     conn["connection_conditions"] = json::array({"reinforced"});
 
     json m0;
-    m0["node_id"]       = "M0";
-    m0["node_type"]     = "market";
+    m0["node_id"] = "M0";
+    m0["node_type"] = "market";
     m0["node_location"] = {{"latitude", 0.0}, {"longitude", 0.0}};
-    m0["is_secure"]     = true;
-    m0["is_active"]     = true;
-    m0["connections"]   = json::array({conn});
+    m0["is_secure"] = true;
+    m0["is_active"] = true;
+    m0["connections"] = json::array({conn});
     nodes.push_back(m0);
     nodes.push_back(makeMarketNode("M1", {}));
 
     Graph g;
     g.build(nodes);
 
-    const auto serial   = bf.computeSerial(g, "M0");
+    const auto serial = bf.computeSerial(g, "M0");
     const auto parallel = bf.computeParallel(g, "M0");
 
     // cost = 10 * 1.0 * (1.0 - 0.3) = 7.0
@@ -285,17 +279,16 @@ TEST_F(BellmanFordOmpTest, ProfilingStats_Serial_TimesCoherent)
     BellmanFord::ProfilingStats stats;
     bf.computeSerial(g, "M0", &stats);
 
-    EXPECT_GT(stats.total_time_ms,    0.0) << "total_time debe ser > 0";
-    EXPECT_GE(stats.serial_time_ms,   0.0) << "serial_time debe ser >= 0";
+    EXPECT_GT(stats.total_time_ms, 0.0) << "total_time debe ser > 0";
+    EXPECT_GE(stats.serial_time_ms, 0.0) << "serial_time debe ser >= 0";
     EXPECT_GE(stats.parallel_time_ms, 0.0) << "parallel_time debe ser >= 0";
-    EXPECT_GT(stats.passes_executed,  0)   << "deben ejecutarse al menos 1 pasada";
-    EXPECT_EQ(stats.num_threads,      1)   << "serial siempre usa 1 thread";
+    EXPECT_GT(stats.passes_executed, 0) << "deben ejecutarse al menos 1 pasada";
+    EXPECT_EQ(stats.num_threads, 1) << "serial siempre usa 1 thread";
     EXPECT_EQ(stats.V, 20u);
     EXPECT_GT(stats.E, 0u);
 
     // serial_time + parallel_time <= total_time (con pequeña tolerancia de medición)
-    EXPECT_LE(stats.serial_time_ms + stats.parallel_time_ms,
-              stats.total_time_ms + 1.0 /* ms de tolerancia */);
+    EXPECT_LE(stats.serial_time_ms + stats.parallel_time_ms, stats.total_time_ms + 1.0 /* ms de tolerancia */);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -323,7 +316,7 @@ TEST_F(BellmanFordOmpTest, PublicCompute_SameAsSerial)
 {
     const Graph g = buildRandomGraph(30, 42);
     const auto via_compute = bf.compute(g, "M0");
-    const auto serial      = bf.computeSerial(g, "M0");
+    const auto serial = bf.computeSerial(g, "M0");
     assertResultsEqual(serial, via_compute);
 }
 
@@ -342,7 +335,7 @@ TEST_F(BellmanFordOmpTest, EarlyExit_Convergence_SameResultBothModes)
     g.build(nodes);
 
     BellmanFord::ProfilingStats sStats, pStats;
-    const auto serial   = bf.computeSerial(g, "M0", &sStats);
+    const auto serial = bf.computeSerial(g, "M0", &sStats);
     const auto parallel = bf.computeParallel(g, "M0", &pStats);
 
     // Ambos deben converger con 1 pasada (early-exit)
@@ -360,7 +353,7 @@ TEST_F(BellmanFordOmpTest, InvalidSource_ThrowsInBothModes)
 {
     const Graph g = buildUniformGraph(5);
 
-    EXPECT_THROW(bf.computeSerial(g, "NOEXISTE"),   std::invalid_argument);
+    EXPECT_THROW(bf.computeSerial(g, "NOEXISTE"), std::invalid_argument);
     EXPECT_THROW(bf.computeParallel(g, "NOEXISTE"), std::invalid_argument);
 }
 
@@ -372,12 +365,12 @@ TEST_F(BellmanFordOmpTest, FulfillmentCenterSource_ThrowsInBothModes)
 {
     json nodes = json::array();
     json fc;
-    fc["node_id"]       = "FC0";
-    fc["node_type"]     = "fulfillment_center";
+    fc["node_id"] = "FC0";
+    fc["node_type"] = "fulfillment_center";
     fc["node_location"] = {{"latitude", 0.0}, {"longitude", 0.0}};
-    fc["is_secure"]     = true;
-    fc["is_active"]     = true;
-    fc["connections"]   = json::array();
+    fc["is_secure"] = true;
+    fc["is_active"] = true;
+    fc["connections"] = json::array();
     nodes.push_back(fc);
 
     // Necesitamos al menos un Market para que el grafo tenga nodos Market
@@ -386,7 +379,7 @@ TEST_F(BellmanFordOmpTest, FulfillmentCenterSource_ThrowsInBothModes)
     Graph g;
     g.build(nodes);
 
-    EXPECT_THROW(bf.computeSerial(g, "FC0"),   std::invalid_argument);
+    EXPECT_THROW(bf.computeSerial(g, "FC0"), std::invalid_argument);
     EXPECT_THROW(bf.computeParallel(g, "FC0"), std::invalid_argument);
 }
 
@@ -401,7 +394,7 @@ TEST_F(BellmanFordOmpTest, MultipleSources_AllConsistent)
 
     for (const auto& node : nodes)
     {
-        const auto serial   = bf.computeSerial(g, node.id);
+        const auto serial = bf.computeSerial(g, node.id);
         const auto parallel = bf.computeParallel(g, node.id, nullptr, 2);
         assertResultsEqual(serial, parallel);
     }
@@ -417,7 +410,7 @@ TEST_F(BellmanFordOmpTest, LargeGraph200Nodes_4Threads_StrictlyEqual)
     const Graph g = buildRandomGraph(200, 31415);
 
     BellmanFord::ProfilingStats sStats, pStats;
-    const auto serial   = bf.computeSerial(g, "M0", &sStats);
+    const auto serial = bf.computeSerial(g, "M0", &sStats);
     const auto parallel = bf.computeParallel(g, "M0", &pStats, 4);
 
     // Correctitud estricta
@@ -433,9 +426,7 @@ TEST_F(BellmanFordOmpTest, LargeGraph200Nodes_4Threads_StrictlyEqual)
     if (sStats.total_time_ms > 0 && pStats.total_time_ms > 0)
     {
         const double speedup = sStats.total_time_ms / pStats.total_time_ms;
-        std::cout << "\n  [Defensa] V=200 E=" << sStats.E
-                  << "  Serial=" << sStats.total_time_ms << "ms"
-                  << "  Paralelo(4t)=" << pStats.total_time_ms << "ms"
-                  << "  Speedup=" << speedup << "x\n";
+        std::cout << "\n  [Defensa] V=200 E=" << sStats.E << "  Serial=" << sStats.total_time_ms << "ms"
+                  << "  Paralelo(4t)=" << pStats.total_time_ms << "ms" << "  Speedup=" << speedup << "x\n";
     }
 }

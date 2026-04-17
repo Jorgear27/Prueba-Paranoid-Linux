@@ -17,8 +17,7 @@
 static inline double nowMs()
 {
     using namespace std::chrono;
-    return duration<double, std::milli>(
-               steady_clock::now().time_since_epoch()).count();
+    return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
 }
 
 void BellmanFord::validateInput(const Graph& graph, const std::string& sourceId) const
@@ -33,10 +32,8 @@ void BellmanFord::validateInput(const Graph& graph, const std::string& sourceId)
         throw std::invalid_argument("[BellmanFord] Graph has no active market nodes.");
 }
 
-// computeSerial — V1: implementación original con unordered_map
-BellmanFord::Result BellmanFord::computeSerial(const Graph& graph,
-                                                const std::string& sourceId,
-                                                ProfilingStats* stats)
+// implementación original con unordered_map
+BellmanFord::Result BellmanFord::computeSerial(const Graph& graph, const std::string& sourceId, ProfilingStats* stats)
 {
     const double t_total_start = nowMs();
     validateInput(graph, sourceId);
@@ -45,9 +42,9 @@ BellmanFord::Result BellmanFord::computeSerial(const Graph& graph,
     const double t_serial_start = nowMs();
 
     const std::vector<Node> marketNodes = graph.getActiveNodes(NodeType::Market);
-    const std::vector<Edge> edges       = graph.getEdges(NodeType::Market);
-    const std::size_t V                 = marketNodes.size();
-    const std::size_t E                 = edges.size();
+    const std::vector<Edge> edges = graph.getEdges(NodeType::Market);
+    const std::size_t V = marketNodes.size();
+    const std::size_t E = edges.size();
 
     Result result;
     for (const Node& n : marketNodes)
@@ -68,7 +65,8 @@ BellmanFord::Result BellmanFord::computeSerial(const Graph& graph,
         for (const Edge& edge : edges)
         {
             const double srcDist = result.distances.at(edge.from_id);
-            if (srcDist >= UNREACHABLE) continue;
+            if (srcDist >= UNREACHABLE)
+                continue;
             const double candidate = srcDist + edge.cost;
             if (candidate < result.distances.at(edge.to_id))
             {
@@ -81,7 +79,7 @@ BellmanFord::Result BellmanFord::computeSerial(const Graph& graph,
         if (!anyRelaxation)
         {
             Logger::getInstance().log("BellmanFord[serial]",
-                "[INFO] Early exit after " + std::to_string(passes) + " pass(es).");
+                                      "[INFO] Early exit after " + std::to_string(passes) + " pass(es).");
             break;
         }
     }
@@ -93,18 +91,20 @@ BellmanFord::Result BellmanFord::computeSerial(const Graph& graph,
     for (const Edge& edge : edges)
     {
         const double srcDist = result.distances.at(edge.from_id);
-        if (srcDist >= UNREACHABLE) continue;
+        if (srcDist >= UNREACHABLE)
+            continue;
         if (srcDist + edge.cost < result.distances.at(edge.to_id))
         {
             result.has_negative_cycle = true;
             if (stats)
             {
-                stats->total_time_ms    = nowMs() - t_total_start;
-                stats->serial_time_ms   = (t_serial_init_end - t_serial_start)
-                                        + (nowMs() - t_neg_start);
+                stats->total_time_ms = nowMs() - t_total_start;
+                stats->serial_time_ms = (t_serial_init_end - t_serial_start) + (nowMs() - t_neg_start);
                 stats->parallel_time_ms = t_parallel_end - t_parallel_start;
-                stats->passes_executed  = passes;
-                stats->num_threads = 1; stats->V = V; stats->E = E;
+                stats->passes_executed = passes;
+                stats->num_threads = 1;
+                stats->V = V;
+                stats->E = E;
             }
             return result;
         }
@@ -113,29 +113,29 @@ BellmanFord::Result BellmanFord::computeSerial(const Graph& graph,
 
     std::size_t reachable = 0;
     for (const auto& [id, d] : result.distances)
-        if (d < UNREACHABLE) ++reachable;
+        if (d < UNREACHABLE)
+            ++reachable;
 
     Logger::getInstance().log("BellmanFord[serial]",
-        "[INFO] Done. reachable: " + std::to_string(reachable) + "/" + std::to_string(V));
+                              "[INFO] Done. reachable: " + std::to_string(reachable) + "/" + std::to_string(V));
 
     result.has_negative_cycle = false;
     if (stats)
     {
-        stats->total_time_ms    = nowMs() - t_total_start;
-        stats->serial_time_ms   = (t_serial_init_end - t_serial_start)
-                                + (t_neg_end - t_neg_start);
+        stats->total_time_ms = nowMs() - t_total_start;
+        stats->serial_time_ms = (t_serial_init_end - t_serial_start) + (t_neg_end - t_neg_start);
         stats->parallel_time_ms = t_parallel_end - t_parallel_start;
-        stats->passes_executed  = passes;
-        stats->num_threads = 1; stats->V = V; stats->E = E;
+        stats->passes_executed = passes;
+        stats->num_threads = 1;
+        stats->V = V;
+        stats->E = E;
     }
     return result;
 }
 
-// computeParallel — V3: init paralela + arrays locales + reducción paralela
-BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
-                                                  const std::string& sourceId,
-                                                  ProfilingStats* stats,
-                                                  int numThreads)
+// init paralela + arrays locales + reducción paralela
+BellmanFord::Result BellmanFord::computeParallel(const Graph& graph, const std::string& sourceId, ProfilingStats* stats,
+                                                 int numThreads)
 {
     const double t_total_start = nowMs();
     validateInput(graph, sourceId);
@@ -146,8 +146,8 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
     const double t_serial_start = nowMs();
 
     const std::vector<Node> marketNodes = graph.getActiveNodes(NodeType::Market);
-    const std::vector<Edge> edges       = graph.getEdges(NodeType::Market);
-    const int V       = static_cast<int>(marketNodes.size());
+    const std::vector<Edge> edges = graph.getEdges(NodeType::Market);
+    const int V = static_cast<int>(marketNodes.size());
     const std::size_t E = edges.size();
 
     std::unordered_map<std::string, int> nodeIndex;
@@ -159,18 +159,25 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
     int srcIdx = -1;
     {
         auto it = nodeIndex.find(sourceId);
-        if (it != nodeIndex.end()) srcIdx = it->second;
+        if (it != nodeIndex.end())
+            srcIdx = it->second;
     }
 
     // Aristas a índices enteros (serial, O(E), se hace una sola vez)
-    struct IndexedEdge { int from; int to; double cost; };
+    struct IndexedEdge
+    {
+        int from;
+        int to;
+        double cost;
+    };
     std::vector<IndexedEdge> iedges;
     iedges.reserve(E);
     for (const Edge& e : edges)
     {
         auto fi = nodeIndex.find(e.from_id);
         auto ti = nodeIndex.find(e.to_id);
-        if (fi == nodeIndex.end() || ti == nodeIndex.end()) continue;
+        if (fi == nodeIndex.end() || ti == nodeIndex.end())
+            continue;
         iedges.push_back({fi->second, ti->second, e.cost});
     }
     const int IE = static_cast<int>(iedges.size());
@@ -179,30 +186,29 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
 
     // ── Configurar threads ────────────────────────────────────────────────────
 #ifdef _OPENMP
-    if (numThreads > 0) omp_set_num_threads(numThreads);
+    if (numThreads > 0)
+        omp_set_num_threads(numThreads);
     const int T = (numThreads > 0) ? numThreads : omp_get_max_threads();
 #else
     const int T = 1;
     (void)numThreads;
 #endif
 
-    // ── PARALELO: inicialización de dist[] ────────────────────────────────────
-    // Con V=400 esto es trivial, pero demuestra que la init es paralelizable.
-    // Con V=10.000+ nodos la ganancia aquí sería significativa.
-    //
     const double t_parallel_start = nowMs();
 
     std::vector<double> dist(V);
-    std::vector<int>    pred(V, -1);
+    std::vector<int> pred(V, -1);
 
+    // ── PARALELO: inicialización de dist[] ────────────────────────────────────
+    // Para grafos grandes chicos es despreciable.
 #ifdef _OPENMP
-    #pragma omp parallel for schedule(static) num_threads(T) \
-            default(none) shared(dist, V)
+#pragma omp parallel for schedule(static) num_threads(T) default(none) shared(dist, V)
 #endif
     for (int i = 0; i < V; ++i)
         dist[i] = UNREACHABLE;
 
-    if (srcIdx >= 0) dist[srcIdx] = 0.0;
+    if (srcIdx >= 0)
+        dist[srcIdx] = 0.0;
 
     // ── Outer loop SERIAL + inner loop PARALELO ───────────────────────────────
     int passes = 0;
@@ -223,23 +229,22 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
 
 #ifdef _OPENMP
         std::vector<std::vector<double>> local_dist(T, dist);
-        std::vector<std::vector<int>>    local_pred(T, pred);
+        std::vector<std::vector<int>> local_pred(T, pred);
 
-        #pragma omp parallel num_threads(T) \
-                default(none) \
-                shared(iedges, dist, local_dist, local_pred, IE)
+#pragma omp parallel num_threads(T) default(none) shared(iedges, dist, local_dist, local_pred, IE)
         {
             const int tid = omp_get_thread_num();
 
-            #pragma omp for schedule(static) nowait
+#pragma omp for schedule(static) nowait
             for (int i = 0; i < IE; ++i)
             {
-                const auto& e    = iedges[i];
-                const double src = dist[e.from];   // solo lectura — safe
-                if (src >= UNREACHABLE) continue;
+                const auto& e = iedges[i];
+                const double src = dist[e.from]; // solo lectura — safe
+                if (src >= UNREACHABLE)
+                    continue;
 
                 const double cand = src + e.cost;
-                if (cand < local_dist[tid][e.to])  // escribe en privado — sin contención
+                if (cand < local_dist[tid][e.to]) // escribe en privado — sin contención
                 {
                     local_dist[tid][e.to] = cand;
                     local_pred[tid][e.to] = e.from;
@@ -255,9 +260,9 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
             {
                 if (local_dist[t][v] < dist[v])
                 {
-                    dist[v]        = local_dist[t][v];
-                    pred[v]        = local_pred[t][v];
-                    anyRelaxation  = true;
+                    dist[v] = local_dist[t][v];
+                    pred[v] = local_pred[t][v];
+                    anyRelaxation = true;
                 }
             }
         }
@@ -267,11 +272,14 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
         for (int i = 0; i < IE; ++i)
         {
             const auto& e = iedges[i];
-            if (dist[e.from] >= UNREACHABLE) continue;
+            if (dist[e.from] >= UNREACHABLE)
+                continue;
             const double cand = dist[e.from] + e.cost;
             if (cand < dist[e.to])
             {
-                dist[e.to] = cand; pred[e.to] = e.from; anyRelaxation = true;
+                dist[e.to] = cand;
+                pred[e.to] = e.from;
+                anyRelaxation = true;
             }
         }
 #endif
@@ -279,7 +287,7 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
         if (!anyRelaxation)
         {
             Logger::getInstance().log("BellmanFord[parallel]",
-                "[INFO] Early exit after " + std::to_string(passes) + " pass(es).");
+                                      "[INFO] Early exit after " + std::to_string(passes) + " pass(es).");
             break;
         }
     }
@@ -290,7 +298,8 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
     const double t_neg_start = nowMs();
     for (const auto& e : iedges)
     {
-        if (dist[e.from] >= UNREACHABLE) continue;
+        if (dist[e.from] >= UNREACHABLE)
+            continue;
         if (dist[e.from] + e.cost < dist[e.to])
         {
             Logger::getInstance().log("BellmanFord[parallel]", "[WARN] Negative cycle.");
@@ -300,13 +309,13 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
                 result.distances[marketNodes[i].id] = dist[i];
             if (stats)
             {
-                stats->total_time_ms    = nowMs() - t_total_start;
-                stats->serial_time_ms   = (t_serial_init_end - t_serial_start)
-                                        + (nowMs() - t_neg_start);
+                stats->total_time_ms = nowMs() - t_total_start;
+                stats->serial_time_ms = (t_serial_init_end - t_serial_start) + (nowMs() - t_neg_start);
                 stats->parallel_time_ms = t_parallel_end - t_parallel_start;
-                stats->passes_executed  = passes;
+                stats->passes_executed = passes;
                 stats->num_threads = T;
-                stats->V = static_cast<std::size_t>(V); stats->E = E;
+                stats->V = static_cast<std::size_t>(V);
+                stats->E = E;
             }
             return result;
         }
@@ -337,19 +346,18 @@ BellmanFord::Result BellmanFord::computeParallel(const Graph& graph,
         }
     }
 
-    Logger::getInstance().log("BellmanFord[parallel]",
-        "[INFO] Done. T=" + std::to_string(T) +
-        " reachable=" + std::to_string(reachable) + "/" + std::to_string(V));
+    Logger::getInstance().log("BellmanFord[parallel]", "[INFO] Done. T=" + std::to_string(T) + " reachable=" +
+                                                           std::to_string(reachable) + "/" + std::to_string(V));
 
     if (stats)
     {
-        stats->total_time_ms    = nowMs() - t_total_start;
-        stats->serial_time_ms   = (t_serial_init_end - t_serial_start)
-                                + (t_neg_end - t_neg_start);
+        stats->total_time_ms = nowMs() - t_total_start;
+        stats->serial_time_ms = (t_serial_init_end - t_serial_start) + (t_neg_end - t_neg_start);
         stats->parallel_time_ms = t_parallel_end - t_parallel_start;
-        stats->passes_executed  = passes;
-        stats->num_threads      = T;
-        stats->V = static_cast<std::size_t>(V); stats->E = E;
+        stats->passes_executed = passes;
+        stats->num_threads = T;
+        stats->V = static_cast<std::size_t>(V);
+        stats->E = E;
     }
     return result;
 }
